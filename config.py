@@ -12,6 +12,18 @@ API_HASH = "your_api_hash_here"  # Your Telegram API hash (string)
 PHONE_NUMBER = "+1234567890"  # Your phone number with country code
 
 # =============================================================================
+# SESSION CONFIGURATION
+# Option 1: Use string session (copy-paste the session string)
+# Option 2: Use session file (legacy, requires running auth once)
+# =============================================================================
+# Generate a string session by running: python -c "from telethon.sync import TelegramClient; c = TelegramClient('session_name', API_ID, API_HASH); c.start(phone='+1234567890'); print(c.session.save())"
+# Then paste the output below:
+STRING_SESSION = ""  # Paste your string session here (e.g., "1AaW2Bb...")
+
+# If STRING_SESSION is empty, will use SESSION_FILE instead
+SESSION_FILE = "userbot_session.session"
+
+# =============================================================================
 # GROUP MONITORING
 # Define which group to watch for new images
 # Can be: group username (e.g., "mytradinggroup") or numeric chat ID (e.g., -1001234567890)
@@ -29,6 +41,18 @@ MIN_CAPTION_GAP = 3  # Minimum number of other captions before a caption can rep
 # Format: ["username1", "username2", 123456789, "username3"]
 # =============================================================================
 CUSTOM_VIEWER_LIST = []
+
+# =============================================================================
+# WELCOME MESSAGE FOR NEW USERS
+# Message sent when someone DMs the bot for the first time
+# Set to None or "" to disable
+# =============================================================================
+NEW_USER_MESSAGE = (
+    "👋 Welcome!\n\n"
+    "You've been added to the story viewer list.\n"
+    "You'll receive all story updates from the group.\n\n"
+    "Stay tuned! 🚀"
+)
 
 # =============================================================================
 # IMAGE COMPOSITION SETTINGS
@@ -50,7 +74,6 @@ LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
 # STATE FILE
 # =============================================================================
 STATE_FILE = "state.json"
-SESSION_FILE = "userbot_session.session"
 
 # =============================================================================
 # CAPTIONS LIST (200 captions for rotation)
