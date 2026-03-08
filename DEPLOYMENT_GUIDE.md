@@ -151,6 +151,12 @@ Your bot includes several protections to prevent account bans:
 - Ensure the bot account is in the group
 - Check that the bot has Premium subscription
 
+### SQLite database error on deployment
+- This issue has been fixed - session files now automatically use the persistent disk
+- The bot creates the `/opt/render/project/data` directory automatically
+- All session data, state files, and logs are stored in persistent storage
+- No manual intervention required - redeploy to apply the fix
+
 ### Render deployment failed
 - Verify all environment variables are set
 - Check requirements.txt has correct dependencies

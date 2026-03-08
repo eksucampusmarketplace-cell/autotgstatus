@@ -4,6 +4,11 @@
 
 This project has been updated to be **deployable to Render** and includes **comprehensive account safety features** to minimize the risk of Telegram account bans.
 
+**Latest Fix (March 2025):**
+- ✅ Fixed SQLite database error on Render deployment
+- ✅ Session files now automatically use persistent disk
+- ✅ Automatic directory creation for persistent storage
+
 ## New Files Created
 
 ### 1. **render.yaml** - Render Deployment Configuration
