@@ -41,8 +41,14 @@ def setup_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_formatter)
 
+    # Determine log file path
+    if os.path.exists("/opt/render"):
+        log_file = "/opt/render/project/data/userbot.log"
+    else:
+        log_file = config.LOG_FILE
+
     # File handler
-    file_handler = logging.FileHandler(config.LOG_FILE)
+    file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(log_formatter)
 
     # Root logger
@@ -138,8 +144,11 @@ class StateManager:
     """Manages persistent state including caption history and viewer whitelist."""
 
     def __init__(self, state_file: str = config.STATE_FILE):
+        # Determine if we're on Render (check for the persistent data directory)
+        is_render = os.path.exists("/opt/render")
+
         # Use persistent disk path for Render deployment
-        if os.path.exists("/opt/render/project/data"):
+        if is_render:
             self.state_file = "/opt/render/project/data/state.json"
         else:
             self.state_file = state_file
@@ -251,20 +260,30 @@ class TelegramStoryBot:
     """Main bot class handling Telegram interactions and story posting."""
 
     def __init__(self):
+        # Determine if we're on Render (check for the persistent data directory)
+        is_render = os.path.exists("/opt/render")
+
+        # Set persistent session file path
+        if is_render:
+            session_file = "/opt/render/project/data/userbot_session.session"
+            # Ensure data directory exists
+            os.makedirs("/opt/render/project/data", exist_ok=True)
+        else:
+            session_file = config.SESSION_FILE
+
         # Handle string session vs file session
         # For Render deployment, prefer string session for persistence
         if config.STRING_SESSION:
             # Use string session (can be copy-pasted)
+            # Still need to provide a session file path for SQLite backend
             self.client = TelegramClient(
-                config.STRING_SESSION,
+                session_file,
                 config.API_ID,
                 config.API_HASH,
+                session=config.STRING_SESSION,
             )
         else:
-            # Use session file (legacy) with persistent path for Render
-            session_file = config.SESSION_FILE
-            if os.path.exists("/opt/render/project/data"):
-                session_file = "/opt/render/project/data/userbot_session.session"
+            # Use session file (legacy)
             self.client = TelegramClient(
                 session_file,
                 config.API_ID,
