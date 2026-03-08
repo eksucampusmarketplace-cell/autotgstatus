@@ -215,26 +215,15 @@ class TelegramStoryBot:
                 await self._handle_group_message(event)
 
     async def _handle_private_message(self, event):
-        """Handle private messages - add sender to whitelist and send welcome message."""
+        """Handle private messages - add sender to whitelist silently."""
         sender = await event.get_sender()
         if isinstance(sender, User):
             user_id = sender.id
             username = sender.username or "N/A"
-            first_name = sender.first_name or "User"
 
             added = self.state_manager.add_viewer_to_whitelist(user_id)
             if added:
                 logger.info(f"New DM from user {user_id} (@{username}) - added to whitelist")
-                
-                # Send welcome message to new user
-                if config.NEW_USER_MESSAGE:
-                    try:
-                        # Replace {name} placeholder with user's first name
-                        welcome_msg = config.NEW_USER_MESSAGE.replace("{name}", first_name)
-                        await event.respond(welcome_msg)
-                        logger.info(f"Sent welcome message to user {user_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send welcome message: {e}")
             else:
                 logger.debug(f"DM from known user {user_id} (@{username})")
 
@@ -373,7 +362,6 @@ class TelegramStoryBot:
         logger.info(f"Viewer whitelist count: {len(self.state_manager.get_viewer_whitelist())}")
         logger.info(f"Available captions: {len(config.CAPTIONS)}")
         logger.info(f"Min caption gap: {config.MIN_CAPTION_GAP}")
-        logger.info(f"New user message: {'enabled' if config.NEW_USER_MESSAGE else 'disabled'}")
 
         await self.client.start()
 
