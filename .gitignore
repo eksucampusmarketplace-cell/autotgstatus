@@ -37,6 +37,7 @@ env/
 userbot_session.session
 userbot_session.session-journal
 state.json
+temp_session.session
 
 # Logs
 *.log
@@ -44,6 +45,10 @@ state.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Environment variables (SENSITIVE)
+.env
+.env.local
 
 # Config with sensitive data (optional - uncomment if you want to ignore config.py)
 # config.py

@@ -11,7 +11,7 @@ import asyncio
 import logging
 import random
 from typing import List, Set, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from telethon import TelegramClient, events
 from telethon.tl.functions.stories import SendStoryRequest
@@ -58,13 +58,91 @@ logger = setup_logging()
 
 
 # =============================================================================
+# RATE LIMITER
+# =============================================================================
+class RateLimiter:
+    """Enforces rate limits to protect account from spam detection."""
+
+    def __init__(self, state_manager):
+        self.state_manager = state_manager
+
+    def can_post_story(self) -> tuple[bool, str]:
+        """
+        Check if a story can be posted based on rate limits.
+        Returns (can_post, reason_message)
+        """
+        now = datetime.now()
+        state = self.state_manager.state
+
+        # Initialize rate limit tracking if needed
+        if "story_timestamps" not in state:
+            state["story_timestamps"] = []
+
+        timestamps = state["story_timestamps"]
+
+        # Check cooldown period after hitting daily limit
+        if "daily_limit_hit_at" in state:
+            limit_hit_time = datetime.fromisoformat(state["daily_limit_hit_at"])
+            cooldown_end = limit_hit_time + timedelta(hours=config.COOLDOWN_HOURS)
+            if now < cooldown_end:
+                remaining = (cooldown_end - now).total_seconds() / 60
+                return False, f"Cooldown active. Wait {remaining:.0f} minutes."
+            else:
+                # Cooldown over, clear the limit
+                del state["daily_limit_hit_at"]
+
+        # Clean up old timestamps (older than 24 hours)
+        one_day_ago = now - timedelta(days=1)
+        timestamps = [ts for ts in timestamps if datetime.fromisoformat(ts) > one_day_ago]
+        state["story_timestamps"] = timestamps
+
+        # Check daily limit
+        if len(timestamps) >= config.MAX_STORIES_PER_DAY:
+            state["daily_limit_hit_at"] = now.isoformat()
+            self.state_manager._save_state()
+            return False, f"Daily limit reached ({config.MAX_STORIES_PER_DAY} stories)"
+
+        # Check hourly limit
+        one_hour_ago = now - timedelta(hours=1)
+        recent_hour = [ts for ts in timestamps if datetime.fromisoformat(ts) > one_hour_ago]
+        if len(recent_hour) >= config.MAX_STORIES_PER_HOUR:
+            return False, f"Hourly limit reached ({config.MAX_STORIES_PER_HOUR} stories)"
+
+        # Check minimum delay between stories
+        if timestamps:
+            last_post = datetime.fromisoformat(timestamps[-1])
+            time_since_last = (now - last_post).total_seconds()
+            if time_since_last < config.MIN_STORY_DELAY:
+                remaining = config.MIN_STORY_DELAY - time_since_last
+                return False, f"Wait {remaining:.0f} seconds before posting again"
+
+        return True, "Ready to post"
+
+    def record_story_posted(self):
+        """Record that a story was posted."""
+        now = datetime.now().isoformat()
+        state = self.state_manager.state
+
+        if "story_timestamps" not in state:
+            state["story_timestamps"] = []
+
+        state["story_timestamps"].append(now)
+        self.state_manager._save_state()
+        logger.info(f"Story recorded. Total today: {len(state['story_timestamps'])}")
+
+
+# =============================================================================
 # STATE MANAGEMENT
 # =============================================================================
 class StateManager:
     """Manages persistent state including caption history and viewer whitelist."""
 
     def __init__(self, state_file: str = config.STATE_FILE):
-        self.state_file = state_file
+        # Use persistent disk path for Render deployment
+        if os.path.exists("/opt/render/project/data"):
+            self.state_file = "/opt/render/project/data/state.json"
+        else:
+            self.state_file = state_file
         self.state = self._load_state()
         self._ensure_defaults()
 
@@ -81,6 +159,8 @@ class StateManager:
     def _save_state(self):
         """Save current state to JSON file."""
         try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.state_file) if os.path.dirname(self.state_file) else ".", exist_ok=True)
             with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump(self.state, f, indent=2)
         except IOError as e:
@@ -172,6 +252,7 @@ class TelegramStoryBot:
 
     def __init__(self):
         # Handle string session vs file session
+        # For Render deployment, prefer string session for persistence
         if config.STRING_SESSION:
             # Use string session (can be copy-pasted)
             self.client = TelegramClient(
@@ -180,14 +261,18 @@ class TelegramStoryBot:
                 config.API_HASH,
             )
         else:
-            # Use session file (legacy)
+            # Use session file (legacy) with persistent path for Render
+            session_file = config.SESSION_FILE
+            if os.path.exists("/opt/render/project/data"):
+                session_file = "/opt/render/project/data/userbot_session.session"
             self.client = TelegramClient(
-                config.SESSION_FILE,
+                session_file,
                 config.API_ID,
                 config.API_HASH,
             )
-        
+
         self.state_manager = StateManager()
+        self.rate_limiter = RateLimiter(self.state_manager)
         self.caption_rotator = CaptionRotator(config.CAPTIONS, self.state_manager)
         self.composer = ImageComposer(
             story_width=config.STORY_WIDTH,
@@ -277,6 +362,12 @@ class TelegramStoryBot:
 
         logger.info(f"New image detected in watched group (msg_id: {event.message.id})")
 
+        # Check rate limits first
+        can_post, reason = self.rate_limiter.can_post_story()
+        if not can_post:
+            logger.info(f"Story not posted due to rate limit: {reason}")
+            return
+
         try:
             # Download the image
             image_bytes = await event.message.download_media(bytes)
@@ -293,6 +384,9 @@ class TelegramStoryBot:
 
             # Post the story
             await self._post_story(story_image)
+
+            # Record the story post for rate limiting
+            self.rate_limiter.record_story_posted()
 
         except Exception as e:
             logger.error(f"Error processing group message: {e}", exc_info=True)
@@ -374,6 +468,16 @@ class TelegramStoryBot:
         logger.info(f"Available captions: {len(config.CAPTIONS)}")
         logger.info(f"Min caption gap: {config.MIN_CAPTION_GAP}")
         logger.info(f"New user message: {'enabled' if config.NEW_USER_MESSAGE else 'disabled'}")
+
+        # Log rate limiting settings
+        logger.info("=" * 60)
+        logger.info("RATE LIMITING SETTINGS (Account Safety)")
+        logger.info("=" * 60)
+        logger.info(f"Min delay between stories: {config.MIN_STORY_DELAY}s")
+        logger.info(f"Max stories per hour: {config.MAX_STORIES_PER_HOUR}")
+        logger.info(f"Max stories per day: {config.MAX_STORIES_PER_DAY}")
+        logger.info(f"Cooldown after daily limit: {config.COOLDOWN_HOURS} hours")
+        logger.info("=" * 60)
 
         await self.client.start()
 

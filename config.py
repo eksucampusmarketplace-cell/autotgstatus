@@ -1,15 +1,21 @@
 """
 Configuration file for Telegram Premium Userbot.
 All user-configurable settings are defined here.
+
+Environment variables are checked first, then defaults are used.
+This makes deployment easier on platforms like Render.
 """
+
+import os
 
 # =============================================================================
 # TELEGRAM API CREDENTIALS
 # Get these from https://my.telegram.org/apps
 # =============================================================================
-API_ID = 12345678  # Your Telegram API ID (integer)
-API_HASH = "your_api_hash_here"  # Your Telegram API hash (string)
-PHONE_NUMBER = "+1234567890"  # Your phone number with country code
+API_ID = int(os.getenv("API_ID", 12345678))  # Your Telegram API ID (integer)
+API_HASH = os.getenv("API_HASH", "your_api_hash_here")  # Your Telegram API hash (string)
+STRING_SESSION = os.getenv("STRING_SESSION", "")  # String session for authentication
+PHONE_NUMBER = os.getenv("PHONE_NUMBER", "+1234567890")  # Your phone number with country code
 
 # =============================================================================
 # SESSION CONFIGURATION
@@ -28,12 +34,25 @@ SESSION_FILE = "userbot_session.session"
 # Define which group to watch for new images
 # Can be: group username (e.g., "mytradinggroup") or numeric chat ID (e.g., -1001234567890)
 # =============================================================================
-WATCH_GROUP = "your_group_username_or_id"
+WATCH_GROUP = os.getenv("WATCH_GROUP", "your_group_username_or_id")
 
 # =============================================================================
 # CAPTION ROTATION SETTINGS
 # =============================================================================
-MIN_CAPTION_GAP = 3  # Minimum number of other captions before a caption can repeat
+MIN_CAPTION_GAP = int(os.getenv("MIN_CAPTION_GAP", 3))  # Minimum number of other captions before a caption can repeat
+
+# =============================================================================
+# RATE LIMITING SETTINGS (IMPORTANT FOR ACCOUNT SAFETY)
+# =============================================================================
+# Time to wait between posting stories (seconds)
+MIN_STORY_DELAY = int(os.getenv("MIN_STORY_DELAY", 300))  # 5 minutes default
+
+# Maximum stories per time period to avoid spam detection
+MAX_STORIES_PER_HOUR = int(os.getenv("MAX_STORIES_PER_HOUR", 5))
+MAX_STORIES_PER_DAY = int(os.getenv("MAX_STORIES_PER_DAY", 30))
+
+# Cooldown period after hitting daily limit (hours)
+COOLDOWN_HOURS = int(os.getenv("COOLDOWN_HOURS", 1))
 
 # =============================================================================
 # VIEWER WHITELIST SETTINGS
@@ -68,7 +87,7 @@ GRADIENT_HEIGHT_RATIO = 0.35  # Gradient covers bottom 35% of image
 # LOGGING SETTINGS
 # =============================================================================
 LOG_FILE = "userbot.log"
-LOG_LEVEL = "INFO"  # DEBUG, INFO, WARNING, ERROR
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # DEBUG, INFO, WARNING, ERROR
 
 # =============================================================================
 # STATE FILE

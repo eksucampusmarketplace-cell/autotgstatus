@@ -2,6 +2,17 @@
 
 A Telegram userbot that automatically posts images from a specific group as Telegram Stories with rotating captions and privacy controls.
 
+## ⚠️ Account Safety Notice
+
+**This bot uses Telegram's MTProto API directly with your account. To minimize ban risk, the bot includes:**
+
+- ✅ **Rate limiting** with configurable delays and daily limits
+- ✅ **Automatic cooldowns** when limits are reached
+- ✅ **Whitelist-only story viewing** for privacy
+- ✅ **Graceful degradation** (no forced retries)
+
+**Read [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) before deploying!**
+
 ## Features
 
 - **Automatic Story Posting**: Listens for images in a specified Telegram group and posts them as stories
@@ -10,12 +21,79 @@ A Telegram userbot that automatically posts images from a specific group as Tele
 - **Privacy Controls**: Only whitelisted users can view stories
 - **Auto-Whitelist**: Automatically adds users who send DMs to the whitelist
 - **Persistent State**: Caption history and whitelist survive restarts
+- **Rate Limiting**: Configurable limits to protect your account from spam detection
+- **Cloud Deployment**: Ready for deployment to Render and other cloud platforms
 
 ## Prerequisites
 
 - Python 3.8 or higher
 - Telegram Premium subscription (required for posting stories via user account)
 - Telegram API credentials (API ID and API Hash)
+
+## Quick Start (Local)
+
+### 1. Get Telegram API Credentials
+
+1. Go to https://my.telegram.org/apps
+2. Log in with your phone number
+3. Create a new application
+4. Note down your **API ID** and **API Hash**
+
+### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Configure the Bot
+
+Option A: Use environment variables (recommended)
+```bash
+export API_ID=12345678
+export API_HASH="your_api_hash_here"
+export PHONE_NUMBER="+1234567890"
+export WATCH_GROUP="your_group_username"
+```
+
+Option B: Edit `config.py` directly
+```python
+API_ID = 12345678
+API_HASH = "your_api_hash_here"
+PHONE_NUMBER = "+1234567890"
+WATCH_GROUP = "your_group_username_or_id"
+```
+
+### 4. Run the Bot
+
+```bash
+python bot.py
+```
+
+On first run, you'll need to:
+1. Enter the verification code sent to your Telegram
+2. Enter your 2FA password if enabled
+
+## Cloud Deployment
+
+### Deploy to Render
+
+📖 **See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for detailed instructions**
+
+Quick steps:
+1. Generate a string session: `python generate_session.py`
+2. Push code to GitHub
+3. Create a Web Service on Render
+4. Set environment variables (API_ID, API_HASH, STRING_SESSION, WATCH_GROUP, etc.)
+5. Deploy!
+
+### Other Platforms
+
+The bot can be deployed to any platform that supports Python:
+- Heroku (using Procfile)
+- Railway
+- DigitalOcean App Platform
+- AWS Lambda (with modifications)
+- Your own VPS
 
 ## Setup Instructions
 
@@ -58,6 +136,19 @@ On first run, you'll need to:
 
 ## Configuration Options
 
+### Rate Limiting (Account Safety)
+
+These settings control how many stories can be posted and are **critical for account safety**:
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `MIN_STORY_DELAY` | Minimum seconds between stories | 300 (5 min) |
+| `MAX_STORIES_PER_HOUR` | Maximum stories per hour | 5 |
+| `MAX_STORIES_PER_DAY` | Maximum stories per day | 30 |
+| `COOLDOWN_HOURS` | Cooldown after daily limit | 1 |
+
+**See [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) for recommended configurations**
+
 ### `config.py` Settings
 
 | Setting | Description | Default |
@@ -69,6 +160,7 @@ On first run, you'll need to:
 | `MIN_CAPTION_GAP` | Min captions before repeat | 3 |
 | `CUSTOM_VIEWER_LIST` | Initial whitelist (usernames/user IDs) | [] |
 | `CAPTIONS` | List of 200 captions for rotation | See config.py |
+| `STRING_SESSION` | String session for authentication (optional) | "" |
 
 ### Viewer Whitelist
 
@@ -128,22 +220,38 @@ Log levels can be adjusted in `config.py`:
 
 ## Account Safety
 
+⚠️ **IMPORTANT**: This bot operates using your real Telegram account. Read [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) for comprehensive safety guidelines.
+
+### Key Safety Features
+
+- ✅ **Rate limiting** with automatic cooldowns
+- ✅ **Persistent state** survives restarts
+- ✅ **Whitelist-only viewing** for privacy
+- ✅ **Graceful handling** of rate limits
+- ✅ **Environment variable support** for secure deployments
+
 ### Tips to Avoid Bans
 
 1. **Use a dedicated account**: Don't use your primary personal account
-2. **Rate limiting**: The bot processes one image at a time - don't modify this
-3. **Don't spam**: Be mindful of how many stories you're posting
-4. **Legitimate usage**: Use the bot for legitimate purposes only
-5. **Warm up**: Start with minimal activity and gradually increase
+2. **Start conservative**: Begin with low rate limits and increase gradually
+3. **Monitor logs**: Check for rate limit messages regularly
+4. **Respect limits**: Don't modify or bypass rate limiting
+5. **Age the account**: Let the account exist for 2+ weeks before use
+6. **Legitimate usage**: Use the bot for legitimate purposes only
 
 ### Important Notes
 
 - **Telegram Premium required**: Stories can only be posted by Premium users
 - **MTProto only**: Uses Telethon (MTProto), not the Bot API
-- **Session persistence**: Your session is saved to `userbot_session.session` - keep this secure
+- **Session persistence**: Your session is saved to `userbot_session.session` or as STRING_SESSION - keep this secure
 - **Privacy**: The bot only listens to the specified group and private messages
+- **Cloud deployment**: Use STRING_SESSION for persistent deployments
 
 ## Troubleshooting
+
+### "Story not posted due to rate limit"
+
+This is **normal and protective**. The bot is preventing spam-like behavior. Wait for the cooldown period or adjust rate limits in config.py.
 
 ### "Could not resolve user ID"
 
@@ -153,13 +261,15 @@ The bot needs to have the user in its contacts/dialogs to resolve them. Have the
 
 - Verify you have Telegram Premium
 - Check your API credentials
-- Ensure the session is valid (delete `userbot_session.session` and re-authenticate if needed)
+- Ensure the session is valid (delete `userbot_session.session` and re-authenerate if needed)
+- Check for rate limiting messages in logs
 
 ### Images not being processed
 
 - Verify `WATCH_GROUP` is set correctly (check the exact username or chat ID)
 - Ensure the bot account has access to the group
 - Check logs for error messages
+- Verify rate limits aren't being hit
 
 ### Font issues
 
@@ -171,6 +281,18 @@ sudo apt-get install fonts-dejavu
 # Or add your font to the system fonts directory
 ```
 
+### Deployment Issues
+
+- **Render builds failing**: Check environment variables are set correctly
+- **Session lost on redeploy**: Use STRING_SESSION instead of session file
+- **Rate limits not persisting**: Ensure persistent disk is configured on Render
+
+## Documentation
+
+- 📖 [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Complete deployment instructions
+- 🛡️ [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) - Comprehensive safety guidelines
+- ⚙️ [.env.example](.env.example) - Environment variable template
+
 ## License
 
 This project is provided as-is for educational purposes. Use at your own risk and in compliance with Telegram's Terms of Service.
@@ -178,6 +300,7 @@ This project is provided as-is for educational purposes. Use at your own risk an
 ## Support
 
 For issues or questions:
-1. Check the logs in `userbot.log`
-2. Verify your configuration in `config.py`
-3. Ensure all dependencies are installed correctly
+1. Check the logs in `userbot.log` or Render dashboard
+2. Read [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) for rate limiting issues
+3. Read [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for deployment issues
+4. Verify your configuration and dependencies
