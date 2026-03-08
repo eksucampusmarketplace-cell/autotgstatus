@@ -19,14 +19,14 @@ PHONE_NUMBER = os.getenv("PHONE_NUMBER", "+1234567890")  # Your phone number wit
 
 # =============================================================================
 # SESSION CONFIGURATION
-# Option 1: Use string session (copy-paste the session string)
+# Option 1: Use string session (copy-paste the session string) - set via STRING_SESSION env var
 # Option 2: Use session file (legacy, requires running auth once)
 # =============================================================================
-# Generate a string session by running: python -c "from telethon.sync import TelegramClient; c = TelegramClient('session_name', API_ID, API_HASH); c.start(phone='+1234567890'); print(c.session.save())"
-# Then paste the output below:
-STRING_SESSION = ""  # Paste your string session here (e.g., "1AaW2Bb...")
+# Generate a string session by running:
+# python -c "from telethon.sync import TelegramClient; c = TelegramClient('session_name', API_ID, API_HASH); c.start(phone='+1234567890'); print(c.session.save())"
+# Then set the output as STRING_SESSION environment variable
 
-# If STRING_SESSION is empty, will use SESSION_FILE instead
+# If STRING_SESSION is empty/not set, will use SESSION_FILE instead
 SESSION_FILE = "userbot_session.session"
 
 # =============================================================================
