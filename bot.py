@@ -16,7 +16,8 @@ from aiohttp import web
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.stories import SendStoryRequest
+from telethon.tl.functions.stories import SendStoryRequest, GetStoriesRequest
+from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import (
     InputPrivacyValueAllowUsers,
     InputUser,
@@ -510,6 +511,11 @@ class TelegramStoryBot:
             
             if added:
                 logger.info(f"Auto-added user {user_id} (@{username}) to whitelist from DM")
+                # Update existing stories to include the new user
+                try:
+                    await self.update_all_stories_for_new_user(user_id)
+                except Exception as e:
+                    logger.warning(f"Could not update existing stories for new user: {e}")
             else:
                 logger.debug(f"User {user_id} (@{username}) already in whitelist")
 
@@ -610,6 +616,11 @@ class TelegramStoryBot:
                 if added:
                     username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
                     await event.reply(f"✅ Added {username} to viewers!")
+                    # Update existing stories to include the new user
+                    try:
+                        await self.update_all_stories_for_new_user(entity.id)
+                    except Exception as e:
+                        logger.warning(f"Could not update existing stories for new user: {e}")
                 else:
                     username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
                     await event.reply(f"ℹ️ {username} is already in the viewer list.")
@@ -942,6 +953,82 @@ class TelegramStoryBot:
 
         except Exception as e:
             logger.error(f"Failed to post story: {e}", exc_info=True)
+
+    async def _update_story_privacy(self, story_id: int, new_user_id: int):
+        """Update an existing story's privacy to include a new user."""
+        try:
+            from telethon.tl.functions.stories import EditStoryRequest
+            
+            me = await self.client.get_me()
+            peer = InputPeerUser(user_id=me.id, access_hash=me.access_hash)
+            
+            # Resolve the new user
+            entity = await self.client.get_entity(new_user_id)
+            if not isinstance(entity, User):
+                logger.warning(f"Cannot update story privacy - could not resolve user {new_user_id}")
+                return False
+            
+            input_user = InputUser(user_id=entity.id, access_hash=entity.access_hash)
+            
+            # Get current whitelist and add the new user
+            allowed_users = await self._resolve_whitelist_users()
+            
+            # Make sure the new user is included
+            if input_user not in allowed_users:
+                allowed_users.append(input_user)
+            
+            # Create privacy rule
+            privacy_rules = [InputPrivacyValueAllowUsers(users=allowed_users)] if allowed_users else []
+            
+            # Try to update the story - note: this may not work for all story types
+            try:
+                await self.client(
+                    EditStoryRequest(
+                        peer=peer,
+                        id=story_id,
+                        privacy_rules=privacy_rules,
+                    )
+                )
+                logger.info(f"Updated story {story_id} privacy for user {new_user_id}")
+                return True
+            except Exception as e:
+                logger.warning(f"Could not update story {story_id} privacy: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error updating story privacy: {e}")
+            return False
+
+    async def update_all_stories_for_new_user(self, new_user_id: int):
+        """Update all existing stories to include a new user in their privacy settings."""
+        try:
+            from telethon.tl.functions.stories import GetUserStoriesRequest
+            
+            me = await self.client.get_me()
+            
+            # Get all stories from the user
+            stories_result = await self.client(
+                GetUserStoriesRequest(peer=InputPeerUser(user_id=me.id, access_hash=me.access_hash))
+            )
+            
+            story_count = 0
+            success_count = 0
+            
+            # Update each story (limit to recent stories to avoid rate limits)
+            max_stories_to_update = 10
+            for story in stories_result.stories[:max_stories_to_update]:
+                story_count += 1
+                if await self._update_story_privacy(story.id, new_user_id):
+                    success_count += 1
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.5)
+            
+            logger.info(f"Updated {success_count}/{story_count} stories for new user {new_user_id}")
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error updating stories for new user: {e}")
+            return False
 
     async def start(self):
         """Start the bot."""
