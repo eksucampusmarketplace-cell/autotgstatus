@@ -37,6 +37,14 @@ SESSION_FILE = "userbot_session.session"
 WATCH_GROUP = os.getenv("WATCH_GROUP", "your_group_username_or_id")
 
 # =============================================================================
+# CHANNEL MONITORING (Optional)
+# Define which channel to watch for new images
+# If set, the bot will monitor this channel for images to post as stories
+# Can be: channel username (e.g., "mychannel") or numeric chat ID (e.g., 1234567890)
+# =============================================================================
+WATCH_CHANNEL = os.getenv("WATCH_CHANNEL", "")  # Empty = disabled
+
+# =============================================================================
 # CAPTION ROTATION SETTINGS
 # =============================================================================
 MIN_CAPTION_GAP = int(os.getenv("MIN_CAPTION_GAP", 3))  # Minimum number of other captions before a caption can repeat
