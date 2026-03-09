@@ -65,10 +65,11 @@ class ImageComposer:
         logger.info(f"Downloaded image: {image.size}, mode: {image.mode}")
         return image
 
-    def resize_and_crop(self, image: Image.Image) -> Image.Image:
+    def resize_and_crop(self, image: Image.Image) -> tuple[Image.Image, int]:
         """
-        Resize and center-crop image to story dimensions (1080x1920).
-        Maintains aspect ratio and crops to center.
+        Scale image to fit within story dimensions (1080x1920) without cropping.
+        Maintains aspect ratio and adds black padding if needed.
+        Returns tuple of (resized_image, image_height) for text positioning.
         """
         # Convert to RGB if necessary
         if image.mode in ("RGBA", "P"):
@@ -78,21 +79,30 @@ class ImageComposer:
         target_ratio = self.story_width / self.story_height
         img_ratio = img_width / img_height
 
+        # Calculate scale factor to fit within story dimensions
         if img_ratio > target_ratio:
-            # Image is wider than target, crop width
-            new_width = int(img_height * target_ratio)
-            left = (img_width - new_width) // 2
-            image = image.crop((left, 0, left + new_width, img_height))
-        elif img_ratio < target_ratio:
-            # Image is taller than target, crop height
-            new_height = int(img_width / target_ratio)
-            top = (img_height - new_height) // 2
-            image = image.crop((0, top, img_width, top + new_height))
+            # Image is wider than target, scale by width
+            scale = self.story_width / img_width
+        else:
+            # Image is taller than target, scale by height
+            scale = self.story_height / img_height
 
-        # Resize to exact dimensions
-        image = image.resize((self.story_width, self.story_height), Image.Resampling.LANCZOS)
-        logger.info(f"Resized image to: {image.size}")
-        return image
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+
+        # Resize the image
+        image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        # Create a black background canvas
+        canvas = Image.new("RGB", (self.story_width, self.story_height), color=(0, 0, 0))
+
+        # Center the image on the canvas
+        x_offset = (self.story_width - new_width) // 2
+        y_offset = (self.story_height - new_height) // 2
+        canvas.paste(image, (x_offset, y_offset))
+
+        logger.info(f"Resized image from {img_width}x{img_height} to {new_width}x{new_height}, positioned at {x_offset},{y_offset}")
+        return canvas, new_height
 
     def _create_gradient_bar(self, width: int, height: int) -> Image.Image:
         """
@@ -177,10 +187,10 @@ class ImageComposer:
         Compose the final story image with gradient and caption.
         Returns JPEG bytes ready for upload.
         """
-        # Resize and crop to story dimensions
-        composed = self.resize_and_crop(image)
+        # Resize to fit within story dimensions (no cropping)
+        composed, scaled_image_height = self.resize_and_crop(image)
 
-        # Create gradient overlay
+        # Create gradient overlay - use full gradient height for visibility
         gradient_height = int(self.story_height * self.gradient_height_ratio)
         gradient = self._create_gradient_bar(self.story_width, gradient_height)
 
@@ -195,7 +205,7 @@ class ImageComposer:
         max_text_width = self.story_width - 80  # 40px padding on each side
         lines = self._wrap_text(caption, self.font, max_text_width)
 
-        # Calculate text positioning (centered, in bottom 25%)
+        # Calculate text positioning (centered, in bottom gradient area)
         line_height = self.caption_font_size + 10
         total_text_height = len(lines) * line_height
         text_area_top = self.story_height - gradient_height + (gradient_height - total_text_height) // 2
