@@ -84,6 +84,12 @@ When new users are added to the whitelist (either via DM or /add command), the b
 - Stories are updated in batches (default: up to 20 stories) to avoid rate limits
 - This feature works automatically - no manual action needed
 
+### Important: No Automatic Messages
+The bot **never sends automatic messages** to users. When someone DMs the bot:
+- They are silently added to the whitelist (no notification to them)
+- Existing stories are updated to include them
+- **Only the owner** can manually send messages to users via Telegram
+
 ---
 
 ## 3. Silent Auto-Whitelist & Supabase Integration
