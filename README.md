@@ -19,7 +19,9 @@ A Telegram userbot that automatically posts images from a specific group as Tele
 - **Image Composition**: Resizes, crops, and adds gradient overlays with captions using Pillow
 - **Caption Rotation**: Randomly rotates through 200 captions with minimum gap enforcement
 - **Privacy Controls**: Only whitelisted users can view stories
-- **Auto-Whitelist**: Automatically adds users who send DMs to the whitelist
+- **Auto-Whitelist**: Automatically adds users who send DMs to the whitelist (no messages sent)
+- **View Viewer List**: Use `/viewers` command to see who's on the whitelist with their names
+- **Supabase Integration**: Persist whitelist across restarts using Supabase database
 - **Persistent State**: Caption history and whitelist survive restarts
 - **Rate Limiting**: Configurable limits to protect your account from spam detection
 - **Cloud Deployment**: Ready for deployment to Render and other cloud platforms
@@ -169,9 +171,38 @@ The whitelist controls who can view your stories:
 1. **Initial whitelist**: Add users to `CUSTOM_VIEWER_LIST` in `config.py`
    - Format: `["username1", "username2", 123456789]`
 
-2. **Auto-whitelist**: Any user who sends you a DM is automatically added
+2. **Auto-whitelist**: Any user who sends you a DM is automatically added to the whitelist
+   - **No messages are sent** to users - they are silently added
+   - Only the owner (you) can send messages manually
 
-The whitelist is stored in `state.json` and persists across restarts.
+3. **Viewing the list**: Use the `/viewers` or `/list` command to see all whitelisted users with their names and usernames
+
+4. **Manual management** (owner only): Use `/add @username` or `/remove @username` to manage the list
+
+The whitelist is stored in **Supabase** (if configured) or locally in `state.json`.
+
+**Note**: Stories are posted with privacy rules at the time of posting. Newly added viewers will only see stories posted *after* they were added to the whitelist.
+
+### Supabase Integration (Recommended)
+
+To prevent whitelist data loss across restarts/deployments:
+
+1. **Create a Supabase account** at https://supabase.com
+2. **Create a new project**
+3. **Create a table** called `whitelist` with:
+   - `id` (bigint, primary key, auto-increment)
+   - `user_id` (text, unique)
+   - `created_at` (timestamp, default now())
+4. **Get your credentials** from Project Settings → API:
+   - `SUPABASE_URL`: Project URL
+   - `SUPABASE_KEY`: `service_role` key (or `anon` key with proper RLS policies)
+5. **Set environment variables**:
+   ```bash
+   export SUPABASE_URL=https://your-project.supabase.co
+   export SUPABASE_KEY=your_service_role_key
+   ```
+
+The bot will automatically sync the whitelist to Supabase on every change and load from Supabase on startup.
 
 ## File Structure
 

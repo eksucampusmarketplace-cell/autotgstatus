@@ -1,9 +1,11 @@
-# Image Resizing Fix - Change Summary
+# Change Summary
 
-## Problem
+## 1. Image Resizing Fix
+
+### Problem
 Images were being cropped when resized to the story dimensions (1080x1920), causing parts of the image to be cut off. This resulted in zoomed or cropped images that didn't show the complete content.
 
-## Solution
+### Solution
 Modified the `resize_and_crop()` method in `composer.py` to:
 
 1. **Scale images to fit within** the target dimensions (1080x1920) rather than crop them
@@ -11,70 +13,122 @@ Modified the `resize_and_crop()` method in `composer.py` to:
 3. **Add black padding** around images that don't fill the full story dimensions
 4. **Center the image** on the canvas for a professional appearance
 
-### Key Changes in `composer.py`:
-
-#### Before (crop-based approach):
-```python
-def resize_and_crop(self, image: Image.Image) -> Image.Image:
-    # Would crop width if image is wider than target
-    if img_ratio > target_ratio:
-        new_width = int(img_height * target_ratio)
-        left = (img_width - new_width) // 2
-        image = image.crop((left, 0, left + new_width, img_height))
-    # Would crop height if image is taller than target
-    elif img_ratio < target_ratio:
-        new_height = int(img_width / target_ratio)
-        top = (img_height - new_height) // 2
-        image = image.crop((0, top, img_width, top + new_height))
-    # Resize to exact dimensions
-    image = image.resize((self.story_width, self.story_height), Image.Resampling.LANCZOS)
-    return image
-```
-
-#### After (fit-based approach):
-```python
-def resize_and_crop(self, image: Image.Image) -> tuple[Image.Image, int]:
-    # Calculate scale factor to fit within story dimensions
-    if img_ratio > target_ratio:
-        scale = self.story_width / img_width  # Scale by width
-    else:
-        scale = self.story_height / img_height  # Scale by height
-
-    new_width = int(img_width * scale)
-    new_height = int(img_height * scale)
-
-    # Resize the image
-    image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-    # Create a black background canvas
-    canvas = Image.new("RGB", (self.story_width, self.story_height), color=(0, 0, 0))
-
-    # Center the image on the canvas
-    x_offset = (self.story_width - new_width) // 2
-    y_offset = (self.story_height - new_height) // 2
-    canvas.paste(image, (x_offset, y_offset))
-
-    return canvas, new_height
-```
-
 ### Result
 - **Complete images** are now displayed without cropping
 - **Aspect ratio is preserved** for all image types
 - **Black padding** fills any empty space (letterboxing effect)
 - **Text captions** are displayed below the image in the gradient overlay area
-- Works correctly for all image aspect ratios (wide, tall, square, panorama, etc.)
 
-## Testing
-The changes were tested with various image aspect ratios:
-- Wide images (1920x1080) - scaled to fit, black padding on top/bottom
-- Tall images (1080x1920) - perfect fit, no padding
-- Square images (1000x1000) - scaled to fit, black padding on top/bottom
-- Very wide images (2000x500) - scaled to fit, significant black padding
-- Very tall images (500x2000) - scaled to fill full height, black padding on sides
+---
 
-All tests passed successfully, confirming that:
-1. Images are never cropped
-2. Aspect ratios are maintained
-3. Images are centered on the canvas
-4. Final output is always 1080x1920 pixels
-5. Text captions are properly positioned below the image
+## 2. Auto-Whitelist Feature Enhancement
+
+### Problem
+Users wanted:
+1. A way to see who's been added to the whitelist
+2. Automatic addition of people who message the bot
+3. Clear visibility of whitelist members with their names/usernames
+
+### Solution
+Modified `bot.py` to implement:
+
+1. **Auto-add on DM**: When someone sends a direct message to the bot, they are automatically added to the whitelist
+2. **Welcome message**: New whitelist members receive a customizable welcome message
+3. **Enhanced viewer list**: The `/viewers` command now shows resolved names and usernames
+
+### Key Changes in `bot.py`:
+
+#### Auto-whitelist on DM (lines 385-399):
+```python
+else:
+    # Auto-add sender to whitelist when they message
+    username = sender.username or "N/A"
+    added = self.state_manager.add_viewer_to_whitelist(user_id)
+    
+    if added:
+        logger.info(f"Auto-added user {user_id} (@{username}) to whitelist from DM")
+        # Send welcome message if configured
+        if config.NEW_USER_MESSAGE:
+            try:
+                await event.reply(config.NEW_USER_MESSAGE)
+            except Exception as e:
+                logger.error(f"Failed to send welcome message: {e}")
+    else:
+        logger.debug(f"User {user_id} (@{username}) already in whitelist")
+```
+
+#### Enhanced viewer list (lines 421-462):
+```python
+async def _send_viewer_list(self, event):
+    """Send list of current viewers with resolved usernames."""
+    viewers = self.state_manager.get_viewer_whitelist()
+    # ... resolves each viewer to show their name and username
+```
+
+### Result
+- Users who DM the bot are automatically added to the whitelist
+- New members receive a welcome message
+- `/viewers` command shows full names and usernames for easy identification
+- All whitelist activity is logged
+
+### Note on Story Visibility
+Stories are posted with privacy rules at the time of posting. This means:
+- **Newly added viewers can only see stories posted AFTER they were added**
+- They cannot see old stories that were posted before they joined the whitelist
+- This is a Telegram privacy limitation, not a bot limitation
+
+---
+
+## 3. Silent Auto-Whitelist & Supabase Integration
+
+### Problem
+1. User didn't want automatic messages sent to people who DM the bot
+2. Whitelist data could be lost on restarts without persistent storage
+
+### Solution
+
+#### 1. Silent Auto-Whitelist (`bot.py`, lines 385-394):
+```python
+else:
+    # Auto-add sender to whitelist when they message
+    # No messages are sent to users - only owner can message manually
+    username = sender.username or "N/A"
+    added = self.state_manager.add_viewer_to_whitelist(user_id)
+    
+    if added:
+        logger.info(f"Auto-added user {user_id} (@{username}) to whitelist from DM")
+    else:
+        logger.debug(f"User {user_id} (@{username}) already in whitelist")
+```
+- Removed welcome message sending
+- Users are silently added to the whitelist
+- Only the owner can message users manually
+
+#### 2. Supabase Integration (`bot.py`, lines 144-166, 235-297):
+- Added optional Supabase client initialization
+- Whitelist is synced to Supabase on every change (add/remove/clear)
+- Whitelist is loaded from Supabase on bot startup
+- Falls back to local JSON file if Supabase is not configured
+
+### Configuration
+
+#### Environment Variables:
+```bash
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your_supabase_key
+```
+
+#### Supabase Table Schema:
+```sql
+create table whitelist (
+  id bigint generated by default as identity primary key,
+  user_id text unique not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+```
+
+### Result
+- No automatic messages are sent to users who DM the bot
+- Whitelist is persisted in Supabase (cloud database)
+- Whitelist survives restarts, redeployments, and server failures
+- Graceful fallback to local storage if Supabase is unavailable
