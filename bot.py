@@ -14,6 +14,7 @@ from typing import List, Set, Union
 from datetime import datetime, timedelta
 
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from telethon.tl.functions.stories import SendStoryRequest
 from telethon.tl.types import (
     InputPrivacyValueAllowUsers,
@@ -277,12 +278,10 @@ class TelegramStoryBot:
         # For Render deployment, prefer string session for persistence
         if config.STRING_SESSION:
             # Use string session (can be copy-pasted)
-            # Still need to provide a session file path for SQLite backend
             self.client = TelegramClient(
-                session_file,
+                StringSession(config.STRING_SESSION),
                 config.API_ID,
                 config.API_HASH,
-                session=config.STRING_SESSION,
             )
         else:
             # Use session file (legacy)
