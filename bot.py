@@ -44,23 +44,40 @@ def setup_logging():
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(log_formatter)
 
-    # Determine log file path
-    if os.path.exists("/opt/render"):
-        log_file = "/opt/render/project/data/userbot.log"
-        # Ensure the data directory exists
-        os.makedirs("/opt/render/project/data", exist_ok=True)
-    else:
-        log_file = config.LOG_FILE
+    # Determine log file path with error handling
+    log_file = config.LOG_FILE
+    file_handler = None
 
-    # File handler
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(log_formatter)
+    if os.path.exists("/opt/render"):
+        log_file_render = "/opt/render/project/data/userbot.log"
+        try:
+            # Ensure the data directory exists
+            os.makedirs("/opt/render/project/data", exist_ok=True)
+            # Try to create file handler with Render path
+            file_handler = logging.FileHandler(log_file_render)
+            file_handler.setFormatter(log_formatter)
+            log_file = log_file_render
+        except (PermissionError, OSError) as e:
+            # Fall back to local log file if Render path fails
+            import warnings
+            warnings.warn(f"Cannot write to Render log path: {e}. Falling back to local log file.")
+            log_file = config.LOG_FILE
+
+    # If file_handler wasn't created (fallback case), create it now
+    if file_handler is None:
+        try:
+            file_handler = logging.FileHandler(log_file)
+            file_handler.setFormatter(log_formatter)
+        except (PermissionError, OSError) as e:
+            import warnings
+            warnings.warn(f"Cannot create log file at {log_file}: {e}. Logging to console only.")
 
     # Root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, config.LOG_LEVEL.upper(), logging.INFO))
     root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
+    if file_handler:
+        root_logger.addHandler(file_handler)
 
     return logging.getLogger(__name__)
 
@@ -179,24 +196,36 @@ class StateManager:
         # Determine if we're on Render (check for the persistent data directory)
         is_render = os.path.exists("/opt/render")
 
-        # Use persistent disk path for Render deployment
+        # Use persistent disk path for Render deployment (with error handling)
         if is_render:
-            self.state_file = "/opt/render/project/data/state.json"
+            try:
+                # Try to use Render's persistent disk
+                os.makedirs("/opt/render/project/data", exist_ok=True)
+                # Test write access by creating a temp file
+                test_file = "/opt/render/project/data/.write_test"
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                self.state_file = "/opt/render/project/data/state.json"
+            except (PermissionError, OSError) as e:
+                # Fall back to local state file if Render path fails
+                logger.warning(f"Cannot write to Render data directory: {e}. Using local state file.")
+                self.state_file = state_file
         else:
             self.state_file = state_file
-        
+
         # Initialize Supabase client
         self.supabase = get_supabase_client()
         self.use_supabase = self.supabase is not None
-        
+
         if self.use_supabase:
             logger.info("Using Supabase for whitelist persistence")
         else:
-            logger.info("Using local JSON file for whitelist persistence")
-        
+            logger.info(f"Using local JSON file for whitelist persistence: {self.state_file}")
+
         self.state = self._load_state()
         self._ensure_defaults()
-        
+
         # Sync whitelist from Supabase on startup
         self._sync_whitelist_from_supabase()
 
@@ -405,11 +434,21 @@ class TelegramStoryBot:
         # Determine if we're on Render (check for the persistent data directory)
         is_render = os.path.exists("/opt/render")
 
-        # Set persistent session file path
+        # Set persistent session file path with error handling
         if is_render:
-            session_file = "/opt/render/project/data/userbot_session.session"
-            # Ensure data directory exists
-            os.makedirs("/opt/render/project/data", exist_ok=True)
+            try:
+                # Try to use Render's persistent disk
+                os.makedirs("/opt/render/project/data", exist_ok=True)
+                # Test write access by creating a temp file
+                test_file = "/opt/render/project/data/.write_test_session"
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                session_file = "/opt/render/project/data/userbot_session.session"
+            except (PermissionError, OSError) as e:
+                # Fall back to local session file if Render path fails
+                logger.warning(f"Cannot write to Render data directory: {e}. Using local session file.")
+                session_file = config.SESSION_FILE
         else:
             session_file = config.SESSION_FILE
 
