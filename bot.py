@@ -44,6 +44,8 @@ def setup_logging():
     # Determine log file path
     if os.path.exists("/opt/render"):
         log_file = "/opt/render/project/data/userbot.log"
+        # Ensure the data directory exists
+        os.makedirs("/opt/render/project/data", exist_ok=True)
     else:
         log_file = config.LOG_FILE
 
