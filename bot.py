@@ -383,15 +383,9 @@ class TelegramStoryBot:
                 # Unknown command from non-owner
                 await event.reply("Unknown command. Use /help for available commands.")
         else:
-            # Not a command - add sender to whitelist (existing behavior)
-            username = sender.username or "N/A"
-            added = self.state_manager.add_viewer_to_whitelist(user_id)
-            if added:
-                logger.info(f"New DM from user {user_id} (@{username}) - added to whitelist")
-                if config.NEW_USER_MESSAGE:
-                    await event.reply(config.NEW_USER_MESSAGE)
-            else:
-                logger.debug(f"DM from known user {user_id} (@{username})")
+            # Do NOT automatically add senders to whitelist
+            # Do NOT send any messages to people who DM the bot
+            logger.info(f"DM from user {user_id} (@{username}) - no automatic response")
 
     async def _send_help(self, event, is_owner: bool):
         """Send help message with available commands."""
@@ -541,10 +535,34 @@ class TelegramStoryBot:
                 isinstance(watch_group, str) and watch_group.lstrip("-").isdigit()
             ):
                 watch_group_id = int(watch_group)
-                is_match = hasattr(chat, "id") and chat.id == watch_group_id
-                if is_match:
-                    logger.info(f"Matched group by ID: {chat.id}")
-                return is_match
+                
+                # Also check if this could be a channel/supergroup ID
+                # Supergroups have format -100{channel_id}
+                # Check if -100{channel_id} matches the chat ID
+                if hasattr(chat, "id"):
+                    # Direct match
+                    if chat.id == watch_group_id:
+                        logger.info(f"Matched group by ID: {chat.id}")
+                        return True
+                    
+                    # Check for supergroup format: -100{10-digit-channel-id}
+                    # The user might have set WATCH_GROUP=-1003825876206
+                    # But the actual channel ID in the dialog is 3825876206 (positive)
+                    # So extract the channel part and compare with positive ID too
+                    watch_str = str(watch_group_id)
+                    if watch_str.startswith("-100") and len(watch_str) == 14:
+                        # Extract the channel part (last 10 digits)
+                        channel_part = watch_str[4:]  # Remove -100 prefix
+                        # Check if chat.id matches the resolved supergroup ID
+                        expected_id = -1000000000000 - int(channel_part)
+                        if chat.id == expected_id:
+                            logger.info(f"Matched supergroup by resolved ID: {chat.id}")
+                            return True
+                        # Also check if it matches the raw channel ID (positive)
+                        if chat.id == int(channel_part):
+                            logger.info(f"Matched channel by raw ID: {chat.id}")
+                            return True
+                return False
 
             # Handle username
             if hasattr(chat, "username") and chat.username:
@@ -738,6 +756,10 @@ class TelegramStoryBot:
     async def _post_story(self, image_bytes: bytes):
         """Post the composed image as a Telegram Story with privacy settings."""
         try:
+            # Get the current user (self) as peer for the story
+            me = await self.client.get_me()
+            peer = InputPeerUser(user_id=me.id, access_hash=me.access_hash)
+
             # Resolve whitelist users
             allowed_users = await self._resolve_whitelist_users()
 
@@ -747,19 +769,20 @@ class TelegramStoryBot:
             # Create privacy rule
             privacy_rules = [InputPrivacyValueAllowUsers(users=allowed_users)] if allowed_users else []
 
-            # Upload the image
-            file = await self.client.upload_file(image_bytes)
+            # Upload the image with proper file name for extension detection
+            file = await self.client.upload_file(image_bytes, file_name="photo.jpg")
 
-            # Post the story
+            # Post the story (with required peer parameter)
             result = await self.client(
                 SendStoryRequest(
+                    peer=peer,
                     media=InputMediaUploadedPhoto(file=file),
                     privacy_rules=privacy_rules,
                     noforwards=False,
                 )
             )
 
-            logger.info(f"Story posted successfully! Story ID: {result.id}")
+            logger.info("Story posted successfully!")
 
         except Exception as e:
             logger.error(f"Failed to post story: {e}", exc_info=True)
