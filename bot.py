@@ -1015,7 +1015,7 @@ class TelegramStoryBot:
             success_count = 0
             
             # Update each story (limit to recent stories to avoid rate limits)
-            max_stories_to_update = 10
+            max_stories_to_update = config.MAX_STORIES_TO_UPDATE
             for story in stories_result.stories[:max_stories_to_update]:
                 story_count += 1
                 if await self._update_story_privacy(story.id, new_user_id):

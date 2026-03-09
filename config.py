@@ -62,6 +62,10 @@ MAX_STORIES_PER_DAY = int(os.getenv("MAX_STORIES_PER_DAY", 30))
 # Cooldown period after hitting daily limit (hours)
 COOLDOWN_HOURS = int(os.getenv("COOLDOWN_HOURS", 1))
 
+# Maximum number of existing stories to update when adding a new viewer
+# Higher = new viewers can see more old stories, but may hit rate limits
+MAX_STORIES_TO_UPDATE = int(os.getenv("MAX_STORIES_TO_UPDATE", 20))
+
 # =============================================================================
 # OWNER USER ID
 # Your Telegram user ID - only you can use owner commands (/add, /remove, /test)
