@@ -19,7 +19,7 @@ A Telegram userbot that automatically posts images from a specific group as Tele
 - **Image Composition**: Resizes, crops, and adds gradient overlays with captions using Pillow
 - **Caption Rotation**: Randomly rotates through 200 captions with minimum gap enforcement
 - **Privacy Controls**: Only whitelisted users can view stories
-- **Auto-Whitelist**: Automatically adds users who send DMs to the whitelist
+- **Manual Whitelist Management**: Add/remove viewers via commands (/add, /remove, /clear, /viewers)
 - **Persistent State**: Caption history and whitelist survive restarts
 - **Rate Limiting**: Configurable limits to protect your account from spam detection
 - **Cloud Deployment**: Ready for deployment to Render and other cloud platforms

@@ -383,15 +383,9 @@ class TelegramStoryBot:
                 # Unknown command from non-owner
                 await event.reply("Unknown command. Use /help for available commands.")
         else:
-            # Not a command - add sender to whitelist (existing behavior)
+            # Not a command - just log it, don't add to whitelist or reply
             username = sender.username or "N/A"
-            added = self.state_manager.add_viewer_to_whitelist(user_id)
-            if added:
-                logger.info(f"New DM from user {user_id} (@{username}) - added to whitelist")
-                if config.NEW_USER_MESSAGE:
-                    await event.reply(config.NEW_USER_MESSAGE)
-            else:
-                logger.debug(f"DM from known user {user_id} (@{username})")
+            logger.debug(f"Non-command DM from user {user_id} (@{username}) - no action taken")
 
     async def _send_help(self, event, is_owner: bool):
         """Send help message with available commands."""

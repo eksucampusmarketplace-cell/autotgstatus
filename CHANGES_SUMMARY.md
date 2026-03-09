@@ -8,6 +8,9 @@ This project has been updated to be **deployable to Render** and includes **comp
 - ✅ Fixed SQLite database error on Render deployment
 - ✅ Session files now automatically use persistent disk
 - ✅ Automatic directory creation for persistent storage
+- ✅ Fixed unwanted automatic replies to private messages
+- ✅ Disabled automatic whitelist additions from DMs
+- ✅ Bot now only responds to commands, not all private messages
 
 ## New Files Created
 
@@ -66,6 +69,24 @@ This project has been updated to be **deployable to Render** and includes **comp
 - Defaults still work for local development
 
 ### **bot.py** - Rate Limiting & Deployment Features
+
+**Latest Fix - Private Message Behavior (March 2025):**
+
+1. **Disabled Automatic Replies** (lines 382-384)
+   - Bot no longer automatically replies to private messages
+   - Only responds to slash commands (/help, /status, /viewers, etc.)
+   - Regular DMs are logged but no action is taken
+   - Eliminates unwanted messages being sent to people
+
+2. **Disabled Automatic Whitelist Additions**
+   - People who DM the bot are no longer automatically added to the viewer whitelist
+   - Whitelist is now managed only through explicit commands (/add, /remove, /clear)
+   - Prevents unauthorized users from being added to your viewer list
+
+**Benefits:**
+- No more confusing messages sent to random people who DM you
+- Complete control over who can see your stories via the whitelist
+- Cleaner DM interactions - bot only responds when you use commands
 
 **New Features:**
 
