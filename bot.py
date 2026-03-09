@@ -860,9 +860,18 @@ class TelegramStoryBot:
                 logger.error("Failed to download image")
                 return
 
-            # Get next caption
-            caption = self.caption_rotator.get_next_caption()
-            logger.info(f"Selected caption: {caption}")
+            # Check if there's a custom caption (message text) with the image
+            # User can send image with caption - we'll use that instead of rotating captions
+            custom_caption = event.message.message.strip() if event.message.message else None
+            
+            if custom_caption:
+                # Use the custom caption from the message
+                caption = custom_caption
+                logger.info(f"Using custom caption from message: {caption}")
+            else:
+                # No custom caption provided, use rotating caption
+                caption = self.caption_rotator.get_next_caption()
+                logger.info(f"Selected rotating caption: {caption}")
 
             # Compose the story image
             story_image = self.composer.process_image_from_bytes(image_bytes, caption)
@@ -941,9 +950,17 @@ class TelegramStoryBot:
                 logger.error("Failed to download image from channel")
                 return
 
-            # Get next caption
-            caption = self.caption_rotator.get_next_caption()
-            logger.info(f"Selected caption: {caption}")
+            # Check if there's a custom caption (message text) with the image
+            custom_caption = event.message.message.strip() if event.message.message else None
+            
+            if custom_caption:
+                # Use the custom caption from the message
+                caption = custom_caption
+                logger.info(f"Using custom caption from channel message: {caption}")
+            else:
+                # No custom caption provided, use rotating caption
+                caption = self.caption_rotator.get_next_caption()
+                logger.info(f"Selected rotating caption: {caption}")
 
             # Compose the story image
             story_image = self.composer.process_image_from_bytes(image_bytes, caption)
