@@ -309,7 +309,7 @@ class TelegramStoryBot:
 
         @self.client.on(events.NewMessage)
         async def handle_new_message(event):
-            """Handle all new messages - for whitelist and group monitoring."""
+            """Handle all new messages - for whitelist, group, and channel monitoring."""
             # Check if this is a private message (DM) for whitelist
             if event.is_private:
                 await self._handle_private_message(event)
@@ -318,6 +318,10 @@ class TelegramStoryBot:
             # Check if this is the watched group
             if await self._is_watched_group(event):
                 await self._handle_group_message(event)
+
+            # Check if this is the watched channel
+            if await self._is_watched_channel(event):
+                await self._handle_channel_message(event)
 
     async def _handle_private_message(self, event):
         """Handle private messages - add sender to whitelist silently."""
@@ -400,6 +404,77 @@ class TelegramStoryBot:
         except Exception as e:
             logger.error(f"Error processing group message: {e}", exc_info=True)
 
+    async def _is_watched_channel(self, event) -> bool:
+        """Check if the message is from the watched channel."""
+        try:
+            chat = await event.get_chat()
+            watch_channel = config.WATCH_CHANNEL
+
+            if not watch_channel:
+                return False
+
+            # Handle numeric chat ID
+            if isinstance(watch_channel, int) or (
+                isinstance(watch_channel, str) and watch_channel.lstrip("-").isdigit()
+            ):
+                watch_channel_id = int(watch_channel)
+                return hasattr(chat, "id") and chat.id == watch_channel_id
+
+            # Handle username
+            if hasattr(chat, "username") and chat.username:
+                return chat.username.lower() == watch_channel.lower().lstrip("@")
+
+            # Handle title
+            if hasattr(chat, "title"):
+                return chat.title == watch_channel
+
+        except Exception as e:
+            logger.error(f"Error checking watched channel: {e}")
+
+        return False
+
+    async def _handle_channel_message(self, event):
+        """Handle messages from the watched channel."""
+        # Only process image messages
+        if not event.message.media:
+            logger.debug("Ignoring non-media message in channel")
+            return
+
+        if not isinstance(event.message.media, MessageMediaPhoto):
+            logger.debug("Ignoring non-photo media message in channel")
+            return
+
+        logger.info(f"New image detected in watched channel (msg_id: {event.message.id})")
+
+        # Check rate limits first
+        can_post, reason = self.rate_limiter.can_post_story()
+        if not can_post:
+            logger.info(f"Story not posted due to rate limit: {reason}")
+            return
+
+        try:
+            # Download the image
+            image_bytes = await event.message.download_media(bytes)
+            if not image_bytes:
+                logger.error("Failed to download image from channel")
+                return
+
+            # Get next caption
+            caption = self.caption_rotator.get_next_caption()
+            logger.info(f"Selected caption: {caption}")
+
+            # Compose the story image
+            story_image = self.composer.process_image_from_bytes(image_bytes, caption)
+
+            # Post the story
+            await self._post_story(story_image)
+
+            # Record the story post for rate limiting
+            self.rate_limiter.record_story_posted()
+
+        except Exception as e:
+            logger.error(f"Error processing channel message: {e}", exc_info=True)
+
     async def _resolve_whitelist_users(self) -> List[InputUser]:
         """Resolve whitelisted user IDs/usernames to InputUser objects."""
         whitelist = self.state_manager.get_viewer_whitelist()
@@ -473,6 +548,7 @@ class TelegramStoryBot:
         logger.info("Starting Telegram Story Userbot...")
         logger.info(f"Session type: {'string session' if config.STRING_SESSION else 'file session'}")
         logger.info(f"Watch group: {config.WATCH_GROUP}")
+        logger.info(f"Watch channel: {config.WATCH_CHANNEL if config.WATCH_CHANNEL else '(disabled)'}")
         logger.info(f"Viewer whitelist count: {len(self.state_manager.get_viewer_whitelist())}")
         logger.info(f"Available captions: {len(config.CAPTIONS)}")
         logger.info(f"Min caption gap: {config.MIN_CAPTION_GAP}")
