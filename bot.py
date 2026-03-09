@@ -505,6 +505,7 @@ class TelegramStoryBot:
         else:
             # Auto-add sender to whitelist when they message
             # No messages are sent to users - only owner can message manually
+            username = sender.username or "N/A"
             added = self.state_manager.add_viewer_to_whitelist(user_id)
             
             if added:
