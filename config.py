@@ -63,6 +63,13 @@ MAX_STORIES_PER_DAY = int(os.getenv("MAX_STORIES_PER_DAY", 30))
 COOLDOWN_HOURS = int(os.getenv("COOLDOWN_HOURS", 1))
 
 # =============================================================================
+# OWNER USER ID
+# Your Telegram user ID - only you can use owner commands (/add, /remove, /test)
+# Find your ID via @userinfobot on Telegram
+# =============================================================================
+OWNER_USER_ID = int(os.getenv("OWNER_USER_ID", 0))  # Set your actual user ID
+
+# =============================================================================
 # VIEWER WHITELIST SETTINGS
 # Pre-populate with usernames or numeric user IDs who can view stories
 # Format: ["username1", "username2", 123456789, "username3"]

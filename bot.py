@@ -224,6 +224,24 @@ class StateManager:
             return True
         return False
 
+    def remove_viewer_from_whitelist(self, user_id: Union[int, str]):
+        """Remove a user from the viewer whitelist."""
+        user_id_str = str(user_id)
+        whitelist = self.state.get("viewer_whitelist", [])
+        if user_id_str in whitelist:
+            whitelist.remove(user_id_str)
+            self.state["viewer_whitelist"] = whitelist
+            self._save_state()
+            logger.info(f"Removed user {user_id} from viewer whitelist")
+            return True
+        return False
+
+    def clear_viewer_whitelist(self):
+        """Clear all viewers from the whitelist."""
+        self.state["viewer_whitelist"] = []
+        self._save_state()
+        logger.info("Cleared all viewers from whitelist")
+
 
 # =============================================================================
 # CAPTION ROTATOR
@@ -325,17 +343,187 @@ class TelegramStoryBot:
                 await self._handle_channel_message(event)
 
     async def _handle_private_message(self, event):
-        """Handle private messages - add sender to whitelist silently."""
+        """Handle private messages - commands to manage whitelist and get status."""
         sender = await event.get_sender()
-        if isinstance(sender, User):
-            user_id = sender.id
-            username = sender.username or "N/A"
+        if not isinstance(sender, User):
+            return
 
+        user_id = sender.id
+        message_text = event.message.message.strip()
+        
+        # Check if user is authorized to manage whitelist (owner only)
+        is_owner = user_id == config.OWNER_USER_ID
+        
+        # Parse command
+        if message_text.startswith("/"):
+            # It's a command
+            command_parts = message_text.split(maxsplit=1)
+            command = command_parts[0].lower()
+            args = command_parts[1] if len(command_parts) > 1 else ""
+            
+            if command in ["/start", "/help"]:
+                await self._send_help(event, is_owner)
+            elif command == "/viewers" or command == "/list":
+                await self._send_viewer_list(event)
+            elif command == "/status":
+                await self._send_status(event)
+            elif is_owner:
+                # Owner-only commands
+                if command == "/add" and args:
+                    await self._add_viewer(event, args)
+                elif command == "/remove" and args:
+                    await self._remove_viewer(event, args)
+                elif command == "/clear":
+                    await self._clear_viewers(event)
+                elif command == "/test":
+                    await self._test_story(event)
+                else:
+                    await event.reply("Unknown command. Use /help for available commands.")
+            else:
+                # Unknown command from non-owner
+                await event.reply("Unknown command. Use /help for available commands.")
+        else:
+            # Not a command - add sender to whitelist (existing behavior)
+            username = sender.username or "N/A"
             added = self.state_manager.add_viewer_to_whitelist(user_id)
             if added:
                 logger.info(f"New DM from user {user_id} (@{username}) - added to whitelist")
+                if config.NEW_USER_MESSAGE:
+                    await event.reply(config.NEW_USER_MESSAGE)
             else:
                 logger.debug(f"DM from known user {user_id} (@{username})")
+
+    async def _send_help(self, event, is_owner: bool):
+        """Send help message with available commands."""
+        help_text = """📖 *Available Commands*
+
+• /start - Show this help message
+• /viewers - List all viewers who can see stories  
+• /status - Show bot status and settings
+"""
+        if is_owner:
+            help_text += """
+👑 *Owner Commands*
+• /add @username - Add viewer by username
+• /add <user_id> - Add viewer by user ID
+• /remove @username - Remove viewer by username
+• /remove <user_id> - Remove viewer by user ID
+• /clear - Remove all viewers
+• /test - Post a test story
+"""
+        await event.reply(help_text)
+
+    async def _send_viewer_list(self, event):
+        """Send list of current viewers."""
+        viewers = self.state_manager.get_viewer_whitelist()
+        if not viewers:
+            await event.reply("No viewers in the list yet.")
+            return
+        
+        text = f"👀 *Current Viewers* ({len(viewers)}):\n\n"
+        for i, viewer in enumerate(viewers, 1):
+            text += f"{i}. `{viewer}`\n"
+        
+        await event.reply(text)
+
+    async def _send_status(self, event):
+        """Send bot status information."""
+        viewers = self.state_manager.get_viewer_whitelist()
+        
+        text = f"""📊 *Bot Status*
+
+• Watch Group: `{config.WATCH_GROUP}`
+• Watch Channel: `{config.WATCH_CHANNEL or 'Disabled'}`
+• Viewers: {len(viewers)}
+• Captions: {len(config.CAPTIONS)}
+• Min Story Delay: {config.MIN_STORY_DELAY}s
+• Max Stories/Day: {config.MAX_STORIES_PER_DAY}
+"""
+        await event.reply(text)
+
+    async def _add_viewer(self, event, user_input: str):
+        """Add a viewer by username or user ID."""
+        user_input = user_input.strip().lstrip("@")
+        
+        # Try to resolve the user
+        try:
+            # Check if it's a numeric ID
+            if user_input.lstrip("-").isdigit():
+                user_id = int(user_input)
+                entity = await self.client.get_entity(user_id)
+            else:
+                # It's a username
+                entity = await self.client.get_entity(f"@{user_input}")
+            
+            if isinstance(entity, User):
+                added = self.state_manager.add_viewer_to_whitelist(entity.id)
+                if added:
+                    username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
+                    await event.reply(f"✅ Added {username} to viewers!")
+                else:
+                    username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
+                    await event.reply(f"ℹ️ {username} is already in the viewer list.")
+            else:
+                await event.reply("❌ Could not resolve user.")
+        except Exception as e:
+            logger.error(f"Error adding viewer: {e}")
+            await event.reply(f"❌ Error: {e}")
+
+    async def _remove_viewer(self, event, user_input: str):
+        """Remove a viewer by username or user ID."""
+        user_input = user_input.strip().lstrip("@")
+        
+        # Try to resolve the user first
+        try:
+            if user_input.lstrip("-").isdigit():
+                user_id = int(user_input)
+            else:
+                entity = await self.client.get_entity(f"@{user_input}")
+                if isinstance(entity, User):
+                    user_id = entity.id
+                else:
+                    await event.reply("❌ Could not resolve user.")
+                    return
+        except:
+            # If resolution fails, try as direct ID
+            try:
+                user_id = int(user_input)
+            except:
+                await event.reply("❌ Invalid username or ID.")
+                return
+        
+        # Remove from whitelist
+        removed = self.state_manager.remove_viewer_from_whitelist(user_id)
+        if removed:
+            await event.reply(f"✅ Removed user {user_id} from viewers!")
+        else:
+            await event.reply(f"ℹ️ User {user_id} was not in the viewer list.")
+
+    async def _clear_viewers(self, event):
+        """Clear all viewers."""
+        self.state_manager.clear_viewer_whitelist()
+        await event.reply("✅ All viewers have been removed.")
+
+    async def _test_story(self, event):
+        """Post a test story."""
+        await event.reply("🧪 Posting test story...")
+        
+        # Check rate limits
+        can_post, reason = self.rate_limiter.can_post_story()
+        if not can_post:
+            await event.reply(f"⏳ Cannot test: {reason}")
+            return
+        
+        try:
+            # Create a simple test image
+            test_image = self.composer.create_test_image("TEST STORY")
+            
+            # Post the story
+            await self._post_story(test_image)
+            self.rate_limiter.record_story_posted()
+            await event.reply("✅ Test story posted!")
+        except Exception as e:
+            await event.reply(f"❌ Error posting test: {e}")
 
     async def _is_watched_group(self, event) -> bool:
         """Check if the message is from the watched group."""
@@ -344,8 +532,8 @@ class TelegramStoryBot:
             watch_group = config.WATCH_GROUP
 
             # Don't try to match if it's the placeholder value
-            if watch_group == "your_group_username_or_id":
-                logger.warning(f"WATCH_GROUP not configured! Set it to your actual group username/ID")
+            if watch_group == "your_group_username_or_id" or not watch_group:
+                logger.warning(f"WATCH_GROUP not configured! Set it to your actual group username/ID in config.py or env var")
                 return False
 
             # Handle numeric chat ID
@@ -363,6 +551,9 @@ class TelegramStoryBot:
                 is_match = chat.username.lower() == watch_group.lower().lstrip("@")
                 if is_match:
                     logger.info(f"Matched group by username: @{chat.username}")
+                else:
+                    # Debug info when not matching
+                    logger.debug(f"Group username @{chat.username} != {watch_group}")
                 return is_match
 
             # Handle title
@@ -370,6 +561,8 @@ class TelegramStoryBot:
                 is_match = chat.title == watch_group
                 if is_match:
                     logger.info(f"Matched group by title: {chat.title}")
+                else:
+                    logger.debug(f"Group title '{chat.title}' != '{watch_group}'")
                 return is_match
 
         except Exception as e:
@@ -379,16 +572,19 @@ class TelegramStoryBot:
 
     async def _handle_group_message(self, event):
         """Handle messages from the watched group."""
+        chat = await event.get_chat()
+        chat_info = f"@{chat.username}" if hasattr(chat, 'username') and chat.username else chat.title if hasattr(chat, 'title') else f"ID:{chat.id}"
+        
         # Only process image messages
         if not event.message.media:
-            logger.debug("Ignoring non-media message")
+            logger.debug(f"Ignoring non-media message from {chat_info}")
             return
 
         if not isinstance(event.message.media, MessageMediaPhoto):
-            logger.debug("Ignoring non-photo media message")
+            logger.debug(f"Ignoring non-photo media from {chat_info}")
             return
 
-        logger.info(f"New image detected in watched group (msg_id: {event.message.id})")
+        logger.info(f"New image detected in watched group {chat_info} (msg_id: {event.message.id})")
 
         # Check rate limits first
         can_post, reason = self.rate_limiter.can_post_story()

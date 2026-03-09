@@ -233,3 +233,55 @@ class ImageComposer:
         """Process an image from bytes."""
         image = Image.open(io.BytesIO(image_bytes))
         return self.compose(image, caption)
+
+    def create_test_image(self, text: str = "TEST") -> bytes:
+        """Create a simple test image with text."""
+        # Create a gradient background
+        image = Image.new("RGB", (self.story_width, self.story_height), color=(45, 45, 45))
+        
+        # Add some visual interest - draw some random shapes
+        draw = ImageDraw.Draw(image)
+        
+        # Draw a simple pattern
+        for i in range(0, self.story_width, 100):
+            for j in range(0, self.story_height, 100):
+                color_val = (i + j) % 255
+                draw.ellipse([i, j, i+80, j+80], fill=(color_val, 50, 100))
+        
+        # Create gradient overlay
+        gradient_height = int(self.story_height * self.gradient_height_ratio)
+        gradient = self._create_gradient_bar(self.story_width, gradient_height)
+        
+        # Paste gradient at bottom
+        image_rgba = image.convert("RGBA")
+        image_rgba.paste(gradient, (0, self.story_height - gradient_height), gradient)
+        
+        # Draw text
+        draw = ImageDraw.Draw(image_rgba)
+        
+        # Use a larger font for test
+        test_font = self._load_font()
+        
+        bbox = test_font.getbbox(text)
+        text_width = bbox[2] - bbox[0] if bbox else 0
+        text_height = bbox[3] - bbox[1] if bbox else 0
+        
+        x = (self.story_width - text_width) // 2
+        y = (self.story_height - text_height) // 2
+        
+        self._draw_text_with_shadow(
+            draw, text, x, y, test_font,
+            self.caption_text_color,
+            shadow_color="#000000",
+            shadow_offset=4,
+            shadow_blur=6,
+        )
+        
+        # Convert to bytes
+        final = image_rgba.convert("RGB")
+        output = io.BytesIO()
+        final.save(output, format="JPEG", quality=95, optimize=True)
+        output.seek(0)
+        
+        logger.info(f"Created test image with text: {text}")
+        return output.getvalue()
