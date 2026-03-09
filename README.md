@@ -286,7 +286,16 @@ This is **normal and protective**. The bot is preventing spam-like behavior. Wai
 
 ### "Could not resolve user ID"
 
-The bot needs to have the user in its contacts/dialogs to resolve them. Have the user send you a DM first.
+This warning occurs when the bot tries to resolve a user ID that isn't in its entity cache. **This is now handled automatically** - the bot stores both the user ID and access_hash when users are added to the whitelist.
+
+**If you still see this warning:**
+1. The user was added to the whitelist before this fix was applied
+2. **Solution:** Have the user send a DM to the bot again, or remove and re-add them using `/remove <user_id>` followed by `/add <user_id>`
+
+**How it works:**
+- When a user DMs the bot, their `user_id` and `access_hash` are stored together
+- The `access_hash` is required by Telegram's API to reference users
+- Without prior interaction, Telegram doesn't allow resolving arbitrary user IDs
 
 ### "Failed to post story"
 

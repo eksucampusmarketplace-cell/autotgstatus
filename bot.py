@@ -313,42 +313,116 @@ class StateManager:
         self.state["last_caption_index"] = caption_index
         self._save_state()
 
-    def get_viewer_whitelist(self) -> List[str]:
-        """Get list of whitelisted viewer IDs/usernames."""
+    def get_viewer_whitelist(self) -> List:
+        """Get list of whitelisted viewer IDs/usernames/access_hash dicts."""
         return self.state.get("viewer_whitelist", [])
 
-    def add_viewer_to_whitelist(self, user_id: Union[int, str]):
-        """Add a user to the viewer whitelist."""
-        user_id_str = str(user_id)
+    def add_viewer_to_whitelist(self, user_id: Union[int, str], access_hash: int = None):
+        """Add a user to the viewer whitelist.
+        
+        Args:
+            user_id: The user's ID or username
+            access_hash: Optional access hash from the user entity
+        """
         whitelist = self.state.get("viewer_whitelist", [])
-        if user_id_str not in whitelist:
-            whitelist.append(user_id_str)
-            self.state["viewer_whitelist"] = whitelist
-            self._save_state()
-            
-            # Also save to Supabase if configured
-            if self.use_supabase:
-                self._save_whitelist_to_supabase(user_id_str)
-            
-            logger.info(f"Added user {user_id} to viewer whitelist")
-            return True
-        return False
+        
+        # Check if already in whitelist
+        for entry in whitelist:
+            if isinstance(entry, dict) and str(entry.get("user_id")) == str(user_id):
+                # Update access_hash if provided
+                if access_hash and entry.get("access_hash") != access_hash:
+                    entry["access_hash"] = access_hash
+                    self._save_state()
+                return False
+            elif str(entry) == str(user_id):
+                # Old format - convert to new format if access_hash provided
+                if access_hash:
+                    whitelist.remove(entry)
+                    whitelist.append({
+                        "user_id": str(user_id),
+                        "access_hash": str(access_hash)
+                    })
+                    self._save_state()
+                return False
+        
+        # Add new entry
+        if access_hash:
+            whitelist.append({
+                "user_id": str(user_id),
+                "access_hash": str(access_hash)
+            })
+        else:
+            whitelist.append(str(user_id))
+        
+        self.state["viewer_whitelist"] = whitelist
+        self._save_state()
+        
+        # Also save to Supabase if configured
+        if self.use_supabase:
+            self._save_whitelist_to_supabase(str(user_id))
+        
+        logger.info(f"Added user {user_id} to viewer whitelist")
+        return True
+
+    def update_user_access_hash(self, user_id: Union[int, str], access_hash: int):
+        """Update the access_hash for a user in the whitelist.
+        
+        Args:
+            user_id: The user's ID
+            access_hash: The access hash from the user entity
+        """
+        whitelist = self.state.get("viewer_whitelist", [])
+        user_id_str = str(user_id)
+        
+        for i, entry in enumerate(whitelist):
+            if isinstance(entry, dict) and str(entry.get("user_id")) == user_id_str:
+                # Already in dict format - update if different
+                if str(entry.get("access_hash")) != str(access_hash):
+                    whitelist[i]["access_hash"] = str(access_hash)
+                    self._save_state()
+                    logger.debug(f"Updated access_hash for user {user_id}")
+                return
+            elif str(entry) == user_id_str:
+                # Old string format - convert to dict
+                whitelist[i] = {
+                    "user_id": user_id_str,
+                    "access_hash": str(access_hash)
+                }
+                self._save_state()
+                logger.debug(f"Converted user {user_id} to dict format with access_hash")
+                return
 
     def remove_viewer_from_whitelist(self, user_id: Union[int, str]):
         """Remove a user from the viewer whitelist."""
         user_id_str = str(user_id)
         whitelist = self.state.get("viewer_whitelist", [])
-        if user_id_str in whitelist:
-            whitelist.remove(user_id_str)
-            self.state["viewer_whitelist"] = whitelist
-            self._save_state()
-            
-            # Also remove from Supabase if configured
-            if self.use_supabase:
-                self._remove_whitelist_from_supabase(user_id_str)
-            
-            logger.info(f"Removed user {user_id} from viewer whitelist")
-            return True
+        
+        # Find and remove the entry (handles both old and new formats)
+        for i, entry in enumerate(whitelist):
+            if isinstance(entry, dict):
+                if str(entry.get("user_id")) == user_id_str:
+                    whitelist.pop(i)
+                    self.state["viewer_whitelist"] = whitelist
+                    self._save_state()
+                    
+                    # Also remove from Supabase if configured
+                    if self.use_supabase:
+                        self._remove_whitelist_from_supabase(user_id_str)
+                    
+                    logger.info(f"Removed user {user_id} from viewer whitelist")
+                    return True
+            elif str(entry) == user_id_str:
+                whitelist.pop(i)
+                self.state["viewer_whitelist"] = whitelist
+                self._save_state()
+                
+                # Also remove from Supabase if configured
+                if self.use_supabase:
+                    self._remove_whitelist_from_supabase(user_id_str)
+                
+                logger.info(f"Removed user {user_id} from viewer whitelist")
+                return True
+        
         return False
 
     def clear_viewer_whitelist(self):
@@ -507,7 +581,10 @@ class TelegramStoryBot:
             # Auto-add sender to whitelist when they message
             # No messages are sent to users - only owner can message manually
             username = sender.username or "N/A"
-            added = self.state_manager.add_viewer_to_whitelist(user_id)
+            # Add with access_hash for better persistence
+            added = self.state_manager.add_viewer_to_whitelist(
+                user_id, access_hash=sender.access_hash
+            )
             
             if added:
                 logger.info(f"Auto-added user {user_id} (@{username}) to whitelist from DM")
@@ -551,8 +628,20 @@ class TelegramStoryBot:
         # Resolve each viewer to get their username/info
         for i, viewer in enumerate(viewers, 1):
             try:
-                # Try to resolve the user
-                if isinstance(viewer, int) or (
+                # Handle new dict format with user_id and access_hash
+                if isinstance(viewer, dict):
+                    user_id = int(viewer.get("user_id", 0))
+                    entity = await self.client.get_entity(user_id)
+                    if isinstance(entity, User):
+                        username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
+                        name = entity.first_name or "Unknown"
+                        if entity.last_name:
+                            name += f" {entity.last_name}"
+                        text += f"{i}. {name} (`{username}`)\n"
+                    else:
+                        text += f"{i}. `ID:{user_id}`\n"
+                # Try to resolve the user (old format - int ID)
+                elif isinstance(viewer, int) or (
                     isinstance(viewer, str) and viewer.lstrip("-").isdigit()
                 ):
                     user_id = int(viewer)
@@ -577,8 +666,11 @@ class TelegramStoryBot:
                     else:
                         text += f"{i}. `@{viewer}`\n"
             except Exception as e:
-                # If resolution fails, just show the raw value
-                text += f"{i}. `{viewer}` (unresolved)\n"
+                # If resolution fails, show the raw value with ID
+                if isinstance(viewer, dict):
+                    text += f"{i}. `ID:{viewer.get('user_id')}` (unresolved)\n"
+                else:
+                    text += f"{i}. `{viewer}` (unresolved)\n"
         
         await event.reply(text)
 
@@ -612,7 +704,10 @@ class TelegramStoryBot:
                 entity = await self.client.get_entity(f"@{user_input}")
             
             if isinstance(entity, User):
-                added = self.state_manager.add_viewer_to_whitelist(entity.id)
+                # Add with access_hash for better persistence
+                added = self.state_manager.add_viewer_to_whitelist(
+                    entity.id, access_hash=entity.access_hash
+                )
                 if added:
                     username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
                     await event.reply(f"✅ Added {username} to viewers!")
@@ -888,12 +983,23 @@ class TelegramStoryBot:
 
         for entry in whitelist:
             try:
-                # Try as integer ID first
+                # Check if entry is a dict with user_id and access_hash (new format)
+                if isinstance(entry, dict):
+                    user_id = entry.get("user_id")
+                    access_hash = entry.get("access_hash")
+                    if user_id and access_hash:
+                        input_users.append(
+                            InputUser(user_id=int(user_id), access_hash=int(access_hash))
+                        )
+                        logger.debug(f"Resolved user {user_id} from stored access_hash")
+                        continue
+
+                # Try as integer ID first (backward compatibility)
                 if isinstance(entry, int) or (
                     isinstance(entry, str) and entry.lstrip("-").isdigit()
                 ):
                     user_id = int(entry)
-                    # Get user entity
+                    # Get user entity - requires prior interaction
                     try:
                         entity = await self.client.get_entity(user_id)
                         if isinstance(entity, User):
@@ -901,8 +1007,15 @@ class TelegramStoryBot:
                                 InputUser(user_id=entity.id, access_hash=entity.access_hash)
                             )
                             logger.debug(f"Resolved user ID {user_id}")
+                            # Update whitelist with access_hash for future use
+                            self.state_manager.update_user_access_hash(
+                                entity.id, entity.access_hash
+                            )
                     except Exception as e:
-                        logger.warning(f"Could not resolve user ID {user_id}: {e}")
+                        logger.warning(
+                            f"Could not resolve user ID {user_id}: {e}. "
+                            f"Have the user message the bot first, or remove and re-add them."
+                        )
                 else:
                     # Try as username
                     username = entry.lstrip("@")
@@ -913,6 +1026,10 @@ class TelegramStoryBot:
                                 InputUser(user_id=entity.id, access_hash=entity.access_hash)
                             )
                             logger.debug(f"Resolved username @{username}")
+                            # Update whitelist with access_hash for future use
+                            self.state_manager.update_user_access_hash(
+                                entity.id, entity.access_hash
+                            )
                     except Exception as e:
                         logger.warning(f"Could not resolve username @{username}: {e}")
             except Exception as e:
