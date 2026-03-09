@@ -12,6 +12,7 @@ import logging
 import random
 from typing import List, Set, Union
 from datetime import datetime, timedelta
+from aiohttp import web
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -605,9 +606,44 @@ class TelegramStoryBot:
 # =============================================================================
 # MAIN ENTRY POINT
 # =============================================================================
+
+# Global reference to the bot for health check
+_bot_instance = None
+
+
+async def health_check(request):
+    """Health check endpoint for Render web service."""
+    global _bot_instance
+    if _bot_instance and _bot_instance.client.is_connected():
+        return web.Response(text="OK - Bot is running", status=200)
+    return web.Response(text="Bot is not connected", status=503)
+
+
+async def start_http_server():
+    """Start the HTTP server for health checks."""
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+    
+    # Get port from environment (Render sets this)
+    port = int(os.environ.get("PORT", 8000))
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"HTTP health check server running on port {port}")
+
+
 async def main():
     """Main entry point."""
+    global _bot_instance
+    
+    # Start HTTP server for health checks
+    await start_http_server()
+    
     bot = TelegramStoryBot()
+    _bot_instance = bot
 
     try:
         await bot.start()

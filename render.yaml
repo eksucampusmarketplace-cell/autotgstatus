@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: telegram-story-userbot
     env: python
     region: oregon
