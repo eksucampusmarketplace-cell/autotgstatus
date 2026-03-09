@@ -470,6 +470,45 @@ class TelegramStoryBot:
 
         user_id = sender.id
         username = sender.username or "N/A"
+        
+        # Check if this is a media message (image)
+        if event.message.media and isinstance(event.message.media, MessageMediaPhoto):
+            # Check rate limits first
+            can_post, reason = self.rate_limiter.can_post_story()
+            if not can_post:
+                await event.reply(f"⏳ Cannot post: {reason}")
+                return
+            
+            # Check if there's a pending custom caption
+            custom_caption = getattr(self, '_pending_custom_caption', None)
+            
+            # If no custom caption, use rotating caption
+            if not custom_caption:
+                custom_caption = self.caption_rotator.get_next_caption()
+                logger.info(f"Selected caption: {custom_caption}")
+            
+            try:
+                # Download the image
+                image_bytes = await event.message.download_media(bytes)
+                if not image_bytes:
+                    await event.reply("❌ Failed to download image")
+                    return
+                
+                # Compose and post story
+                story_image = self.composer.process_image_from_bytes(image_bytes, custom_caption)
+                await self._post_story(story_image)
+                self.rate_limiter.record_story_posted()
+                
+                # Clear pending custom caption
+                self._pending_custom_caption = None
+                
+                await event.reply(f"✅ Story posted with: {custom_caption}")
+                return
+            except Exception as e:
+                logger.error(f"Error posting story from DM: {e}")
+                await event.reply(f"❌ Error: {e}")
+                return
+        
         message_text = event.message.message.strip()
 
         # Check if user is authorized to manage whitelist (owner only)
@@ -498,6 +537,10 @@ class TelegramStoryBot:
                     await self._clear_viewers(event)
                 elif command == "/test":
                     await self._test_story(event)
+                elif command == "/story" and args:
+                    await self._handle_custom_story(event, args)
+                elif command == "/image" and args:
+                    await self._handle_custom_story(event, args)
                 else:
                     await event.reply("Unknown command. Use /help for available commands.")
             else:
@@ -536,6 +579,8 @@ class TelegramStoryBot:
 • /remove <user_id> - Remove viewer by user ID
 • /clear - Remove all viewers
 • /test - Post a test story
+• /story <text> - Post story with custom text
+• /image <text> - Post story with custom text
 """
         await event.reply(help_text)
 
@@ -685,6 +730,37 @@ class TelegramStoryBot:
             await event.reply("✅ Test story posted!")
         except Exception as e:
             await event.reply(f"❌ Error posting test: {e}")
+
+    async def _handle_custom_story(self, event, custom_text: str):
+        """Handle custom story with user-provided text. Expects an image reply."""
+        await event.reply("📸 Please reply to an image with this command, or send me an image to use with your custom text.")
+        
+        # Store the custom text temporarily for the next image
+        self._pending_custom_caption = custom_text
+        logger.info(f"Custom caption set: {custom_text}")
+        
+    async def _handle_image_with_custom_text(self, event, image_bytes: bytes):
+        """Process an image with custom caption that was set via /story or /image command."""
+        custom_caption = getattr(self, '_pending_custom_caption', None)
+        
+        if not custom_caption:
+            # No custom caption set, use rotating caption
+            custom_caption = self.caption_rotator.get_next_caption()
+        
+        try:
+            # Compose the story image with custom text
+            story_image = self.composer.process_image_from_bytes(image_bytes, custom_caption)
+            
+            # Post the story
+            await self._post_story(story_image)
+            self.rate_limiter.record_story_posted()
+            
+            # Clear the pending custom caption
+            self._pending_custom_caption = None
+            
+            await event.reply(f"✅ Story posted with: {custom_caption}")
+        except Exception as e:
+            await event.reply(f"❌ Error: {e}")
 
     async def _is_watched_group(self, event) -> bool:
         """Check if the message is from the watched group."""
