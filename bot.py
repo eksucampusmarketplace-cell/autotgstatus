@@ -342,20 +342,34 @@ class TelegramStoryBot:
             chat = await event.get_chat()
             watch_group = config.WATCH_GROUP
 
+            # Don't try to match if it's the placeholder value
+            if watch_group == "your_group_username_or_id":
+                logger.warning(f"WATCH_GROUP not configured! Set it to your actual group username/ID")
+                return False
+
             # Handle numeric chat ID
             if isinstance(watch_group, int) or (
                 isinstance(watch_group, str) and watch_group.lstrip("-").isdigit()
             ):
                 watch_group_id = int(watch_group)
-                return hasattr(chat, "id") and chat.id == watch_group_id
+                is_match = hasattr(chat, "id") and chat.id == watch_group_id
+                if is_match:
+                    logger.info(f"Matched group by ID: {chat.id}")
+                return is_match
 
             # Handle username
             if hasattr(chat, "username") and chat.username:
-                return chat.username.lower() == watch_group.lower().lstrip("@")
+                is_match = chat.username.lower() == watch_group.lower().lstrip("@")
+                if is_match:
+                    logger.info(f"Matched group by username: @{chat.username}")
+                return is_match
 
             # Handle title
             if hasattr(chat, "title"):
-                return chat.title == watch_group
+                is_match = chat.title == watch_group
+                if is_match:
+                    logger.info(f"Matched group by title: {chat.title}")
+                return is_match
 
         except Exception as e:
             logger.error(f"Error checking watched group: {e}")
@@ -411,6 +425,7 @@ class TelegramStoryBot:
             watch_channel = config.WATCH_CHANNEL
 
             if not watch_channel:
+                logger.debug("WATCH_CHANNEL not configured")
                 return False
 
             # Handle numeric chat ID
@@ -418,15 +433,24 @@ class TelegramStoryBot:
                 isinstance(watch_channel, str) and watch_channel.lstrip("-").isdigit()
             ):
                 watch_channel_id = int(watch_channel)
-                return hasattr(chat, "id") and chat.id == watch_channel_id
+                is_match = hasattr(chat, "id") and chat.id == watch_channel_id
+                if is_match:
+                    logger.info(f"Matched channel by ID: {chat.id}")
+                return is_match
 
             # Handle username
             if hasattr(chat, "username") and chat.username:
-                return chat.username.lower() == watch_channel.lower().lstrip("@")
+                is_match = chat.username.lower() == watch_channel.lower().lstrip("@")
+                if is_match:
+                    logger.info(f"Matched channel by username: @{chat.username}")
+                return is_match
 
             # Handle title
             if hasattr(chat, "title"):
-                return chat.title == watch_channel
+                is_match = chat.title == watch_channel
+                if is_match:
+                    logger.info(f"Matched channel by title: {chat.title}")
+                return is_match
 
         except Exception as e:
             logger.error(f"Error checking watched channel: {e}")
