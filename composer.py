@@ -289,6 +289,11 @@ class ImageComposer:
                     # Add to current line
                     current_line.append((seg_type, word))
                     current_width += word_width
+                    # Add space width for subsequent words
+                    if current_line and len(current_line) > 1:
+                        space_font = self.emoji_font if seg_type == "emoji" else self.font
+                        space_bbox = space_font.getbbox(" ")
+                        current_width += space_bbox[2] - space_bbox[0] if space_bbox else 0
 
         if current_line:
             lines.append(current_line)
@@ -337,7 +342,7 @@ class ImageComposer:
             y = text_area_top + i * line_height
 
             # Draw each segment in the line
-            for seg_type, seg_text in line_segments:
+            for j, (seg_type, seg_text) in enumerate(line_segments):
                 font = self.emoji_font if seg_type == "emoji" else self.font
                 bbox = font.getbbox(seg_text)
                 seg_width = bbox[2] - bbox[0] if bbox else 0
@@ -350,6 +355,11 @@ class ImageComposer:
                     shadow_blur=4,
                 )
                 x += seg_width
+                # Add space after word (except for last segment in line)
+                if j < len(line_segments) - 1:
+                    space_bbox = font.getbbox(" ")
+                    space_width = space_bbox[2] - space_bbox[0] if space_bbox else 0
+                    x += space_width
 
         # Convert back to RGB and save as JPEG
         final = composed_rgba.convert("RGB")
