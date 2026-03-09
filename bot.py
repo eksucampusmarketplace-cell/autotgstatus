@@ -741,6 +741,11 @@ class TelegramStoryBot:
         removed = self.state_manager.remove_viewer_from_whitelist(user_id)
         if removed:
             await event.reply(f"✅ Removed user {user_id} from viewers!")
+            # Update existing stories to remove this user's access
+            try:
+                await self.remove_user_from_all_stories(user_id)
+            except Exception as e:
+                logger.warning(f"Could not update existing stories to remove user: {e}")
         else:
             await event.reply(f"ℹ️ User {user_id} was not in the viewer list.")
 
@@ -1120,8 +1125,9 @@ class TelegramStoryBot:
             # Get current whitelist and add the new user
             allowed_users = await self._resolve_whitelist_users()
             
-            # Make sure the new user is included
-            if input_user not in allowed_users:
+            # Make sure the new user is included (compare by user_id, not object identity)
+            existing_user_ids = {u.user_id for u in allowed_users}
+            if entity.id not in existing_user_ids:
                 allowed_users.append(input_user)
             
             # Create privacy rule
@@ -1175,6 +1181,55 @@ class TelegramStoryBot:
             
         except Exception as e:
             logger.error(f"Error updating stories for new user: {e}")
+            return False
+
+    async def remove_user_from_all_stories(self, user_id: int):
+        """Update all existing stories to remove a user's access."""
+        try:
+            from telethon.tl.functions.stories import GetUserStoriesRequest, EditStoryRequest
+            
+            me = await self.client.get_me()
+            
+            # Get all stories from the user
+            stories_result = await self.client(
+                GetUserStoriesRequest(peer=InputPeerUser(user_id=me.id, access_hash=me.access_hash))
+            )
+            
+            story_count = 0
+            success_count = 0
+            
+            # Update each story (limit to recent stories to avoid rate limits)
+            max_stories_to_update = config.MAX_STORIES_TO_UPDATE
+            for story in stories_result.stories[:max_stories_to_update]:
+                story_count += 1
+                try:
+                    # Get current whitelist and remove the user
+                    allowed_users = await self._resolve_whitelist_users()
+                    
+                    # Filter out the user to remove
+                    allowed_users = [u for u in allowed_users if u.user_id != user_id]
+                    
+                    # Create privacy rule
+                    privacy_rules = [InputPrivacyValueAllowUsers(users=allowed_users)] if allowed_users else []
+                    
+                    await self.client(
+                        EditStoryRequest(
+                            peer=InputPeerUser(user_id=me.id, access_hash=me.access_hash),
+                            id=story.id,
+                            privacy_rules=privacy_rules,
+                        )
+                    )
+                    success_count += 1
+                except Exception as e:
+                    logger.warning(f"Could not update story {story.id}: {e}")
+                # Small delay to avoid rate limiting
+                await asyncio.sleep(0.5)
+            
+            logger.info(f"Updated {success_count}/{story_count} stories to remove user {user_id}")
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error removing user from stories: {e}")
             return False
 
     async def start(self):
