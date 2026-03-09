@@ -63,6 +63,8 @@ class ImageComposer:
             "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
             "/usr/share/fonts/truetype/ancient-scripts/Symbola.ttf",
             "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         ]
 
         for font_path in font_options:
