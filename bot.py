@@ -635,20 +635,33 @@ class TelegramStoryBot:
         # Resolve each viewer to get their username/info
         for i, viewer in enumerate(viewers, 1):
             try:
-                # Try to resolve the user
+                # Try to resolve the user using get_input_entity with PeerUser wrapper
                 if isinstance(viewer, int) or (
                     isinstance(viewer, str) and viewer.lstrip("-").isdigit()
                 ):
                     user_id = int(viewer)
-                    entity = await self.client.get_entity(user_id)
-                    if isinstance(entity, User):
-                        username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
-                        name = entity.first_name or "Unknown"
-                        if entity.last_name:
-                            name += f" {entity.last_name}"
-                        text += f"{i}. {name} (`{username}`)\n"
-                    else:
-                        text += f"{i}. `{viewer}`\n"
+                    try:
+                        from telethon.tl.types import PeerUser
+                        entity = await self.client.get_input_entity(PeerUser(user_id=user_id))
+                        if entity:
+                            username = f"@{entity.username}" if hasattr(entity, 'username') and entity.username else f"ID:{entity.user_id}"
+                            name = entity.first_name or "Unknown"
+                            if entity.last_name:
+                                name += f" {entity.last_name}"
+                            text += f"{i}. {name} (`{username}`)\n"
+                        else:
+                            raise ValueError("Entity not found")
+                    except Exception:
+                        # Fallback to get_entity
+                        entity = await self.client.get_entity(user_id)
+                        if isinstance(entity, User):
+                            username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
+                            name = entity.first_name or "Unknown"
+                            if entity.last_name:
+                                name += f" {entity.last_name}"
+                            text += f"{i}. {name} (`{username}`)\n"
+                        else:
+                            text += f"{i}. `{viewer}`\n"
                 else:
                     # It's a username string
                     username = viewer.lstrip("@")
@@ -687,22 +700,42 @@ class TelegramStoryBot:
         
         # Try to resolve the user
         try:
-            # Check if it's a numeric ID
+            # Check if it's a numeric ID - use get_input_entity with PeerUser wrapper
+            from telethon.tl.types import PeerUser
+            
             if user_input.lstrip("-").isdigit():
                 user_id = int(user_input)
-                entity = await self.client.get_entity(user_id)
+                try:
+                    entity = await self.client.get_input_entity(PeerUser(user_id=user_id))
+                    if entity:
+                        # Use entity.user_id for InputPeerUser result
+                        resolved_id = entity.user_id
+                        resolved_hash = entity.access_hash
+                    else:
+                        raise ValueError("Entity not found")
+                except Exception:
+                    # Fallback to get_entity
+                    entity = await self.client.get_entity(user_id)
+                    if isinstance(entity, User):
+                        resolved_id = entity.id
+                        resolved_hash = entity.access_hash
+                    else:
+                        await event.reply("❌ Could not resolve user.")
+                        return
             else:
                 # It's a username
                 entity = await self.client.get_entity(f"@{user_input}")
+                resolved_id = entity.id
+                resolved_hash = entity.access_hash
             
             if isinstance(entity, User):
-                added = self.state_manager.add_viewer_to_whitelist(entity.id)
+                added = self.state_manager.add_viewer_to_whitelist(resolved_id)
                 if added:
                     username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
                     await event.reply(f"✅ Added {username} to viewers!")
                     # Update existing stories to include the new user
                     try:
-                        await self.update_all_stories_for_new_user(entity.id)
+                        await self.update_all_stories_for_new_user(resolved_id)
                     except Exception as e:
                         logger.warning(f"Could not update existing stories for new user: {e}")
                 else:
@@ -1033,6 +1066,8 @@ class TelegramStoryBot:
 
     async def _resolve_whitelist_users(self) -> List[InputUser]:
         """Resolve whitelisted user IDs/usernames to InputUser objects."""
+        from telethon.tl.types import PeerUser
+
         whitelist = self.state_manager.get_viewer_whitelist()
         input_users = []
 
@@ -1043,16 +1078,27 @@ class TelegramStoryBot:
                     isinstance(entry, str) and entry.lstrip("-").isdigit()
                 ):
                     user_id = int(entry)
-                    # Get user entity
+                    # Get user entity using get_input_entity (better for cached entities)
+                    # Also try wrapping in PeerUser to help Telethon resolve the entity
                     try:
-                        entity = await self.client.get_entity(user_id)
-                        if isinstance(entity, User):
+                        # Use get_input_entity first - it's more efficient for cached entities
+                        entity = await self.client.get_input_entity(PeerUser(user_id=user_id))
+                        if entity:
                             input_users.append(
-                                InputUser(user_id=entity.id, access_hash=entity.access_hash)
+                                InputUser(user_id=entity.user_id, access_hash=entity.access_hash)
                             )
                             logger.debug(f"Resolved user ID {user_id}")
-                    except Exception as e:
-                        logger.warning(f"Could not resolve user ID {user_id}: {e}")
+                    except Exception:
+                        # Fallback: try get_entity which makes API calls to resolve
+                        try:
+                            entity = await self.client.get_entity(user_id)
+                            if isinstance(entity, User):
+                                input_users.append(
+                                    InputUser(user_id=entity.id, access_hash=entity.access_hash)
+                                )
+                                logger.debug(f"Resolved user ID {user_id} via API")
+                        except Exception as e:
+                            logger.warning(f"Could not resolve user ID {user_id}: {e}")
                 else:
                     # Try as username
                     username = entry.lstrip("@")
@@ -1110,17 +1156,29 @@ class TelegramStoryBot:
         """Update an existing story's privacy to include a new user."""
         try:
             from telethon.tl.functions.stories import EditStoryRequest
+            from telethon.tl.types import PeerUser
             
             me = await self.client.get_me()
             peer = InputPeerUser(user_id=me.id, access_hash=me.access_hash)
             
-            # Resolve the new user
-            entity = await self.client.get_entity(new_user_id)
-            if not isinstance(entity, User):
-                logger.warning(f"Cannot update story privacy - could not resolve user {new_user_id}")
-                return False
-            
-            input_user = InputUser(user_id=entity.id, access_hash=entity.access_hash)
+            # Resolve the new user using get_input_entity with PeerUser wrapper
+            try:
+                entity = await self.client.get_input_entity(PeerUser(user_id=new_user_id))
+                if entity:
+                    input_user = InputUser(user_id=entity.user_id, access_hash=entity.access_hash)
+                else:
+                    raise ValueError("Entity not found")
+            except Exception:
+                # Fallback to get_entity which makes API calls
+                try:
+                    entity = await self.client.get_entity(new_user_id)
+                    if not isinstance(entity, User):
+                        logger.warning(f"Cannot update story privacy - could not resolve user {new_user_id}")
+                        return False
+                    input_user = InputUser(user_id=entity.id, access_hash=entity.access_hash)
+                except Exception as e:
+                    logger.warning(f"Cannot update story privacy - could not resolve user {new_user_id}: {e}")
+                    return False
             
             # Get current whitelist and add the new user
             allowed_users = await self._resolve_whitelist_users()
