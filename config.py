@@ -77,16 +77,20 @@ OWNER_USER_ID = int(os.getenv("OWNER_USER_ID", 0))  # Set your actual user ID
 CUSTOM_VIEWER_LIST = []
 
 # =============================================================================
-# WELCOME MESSAGE FOR NEW USERS
-# Message sent when someone DMs the bot for the first time
-# Set to None or "" to disable
+# SUPABASE CONFIGURATION (Optional)
+# Use Supabase to persist whitelist across restarts and deployments
+# Set SUPABASE_URL and SUPABASE_KEY to enable cloud storage
+# If not set, whitelist will be stored locally in state.json
 # =============================================================================
-NEW_USER_MESSAGE = (
-    "👋 Welcome!\n\n"
-    "You've been added to the story viewer list.\n"
-    "You'll receive all story updates from the group.\n\n"
-    "Stay tuned! 🚀"
-)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")  # Your Supabase project URL
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")  # Your Supabase anon/service key
+
+# =============================================================================
+# WELCOME MESSAGE FOR NEW USERS
+# DISABLED - No automatic messages are sent to users
+# Only the owner can message users manually
+# =============================================================================
+NEW_USER_MESSAGE = None  # Disabled - owner only messaging
 
 # =============================================================================
 # IMAGE COMPOSITION SETTINGS

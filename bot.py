@@ -142,10 +142,37 @@ class RateLimiter:
 
 
 # =============================================================================
+# SUPABASE CLIENT (Optional)
+# =============================================================================
+_supabase_client = None
+
+def get_supabase_client():
+    """Get or create Supabase client."""
+    global _supabase_client
+    if _supabase_client is not None:
+        return _supabase_client
+    
+    if not config.SUPABASE_URL or not config.SUPABASE_KEY:
+        return None
+    
+    try:
+        from supabase import create_client
+        _supabase_client = create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+        logger.info("Supabase client initialized successfully")
+        return _supabase_client
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {e}")
+        return None
+
+
+# =============================================================================
 # STATE MANAGEMENT
 # =============================================================================
 class StateManager:
-    """Manages persistent state including caption history and viewer whitelist."""
+    """Manages persistent state including caption history and viewer whitelist.
+    
+    Uses Supabase for whitelist persistence if configured, otherwise uses local JSON file.
+    """
 
     def __init__(self, state_file: str = config.STATE_FILE):
         # Determine if we're on Render (check for the persistent data directory)
@@ -156,8 +183,21 @@ class StateManager:
             self.state_file = "/opt/render/project/data/state.json"
         else:
             self.state_file = state_file
+        
+        # Initialize Supabase client
+        self.supabase = get_supabase_client()
+        self.use_supabase = self.supabase is not None
+        
+        if self.use_supabase:
+            logger.info("Using Supabase for whitelist persistence")
+        else:
+            logger.info("Using local JSON file for whitelist persistence")
+        
         self.state = self._load_state()
         self._ensure_defaults()
+        
+        # Sync whitelist from Supabase on startup
+        self._sync_whitelist_from_supabase()
 
     def _load_state(self) -> dict:
         """Load state from JSON file or return defaults."""
@@ -192,6 +232,70 @@ class StateManager:
             self.state["last_caption_index"] = None
         self._save_state()
 
+    def _sync_whitelist_from_supabase(self):
+        """Sync whitelist from Supabase to local state on startup."""
+        if not self.use_supabase:
+            return
+        
+        try:
+            response = self.supabase.table("whitelist").select("user_id").execute()
+            if response.data:
+                supabase_ids = [str(item["user_id"]) for item in response.data]
+                local_whitelist = self.state.get("viewer_whitelist", [])
+                
+                # Merge Supabase IDs with local whitelist (avoid duplicates)
+                merged = list(set(local_whitelist + supabase_ids))
+                self.state["viewer_whitelist"] = merged
+                self._save_state()
+                logger.info(f"Synced {len(supabase_ids)} users from Supabase whitelist")
+        except Exception as e:
+            logger.error(f"Failed to sync whitelist from Supabase: {e}")
+
+    def _save_whitelist_to_supabase(self, user_id: str):
+        """Save a user to Supabase whitelist."""
+        if not self.use_supabase:
+            return True
+        
+        try:
+            # Check if already exists
+            response = self.supabase.table("whitelist").select("id").eq("user_id", user_id).execute()
+            if response.data:
+                return True  # Already exists
+            
+            # Insert new record
+            self.supabase.table("whitelist").insert({"user_id": user_id}).execute()
+            logger.info(f"Saved user {user_id} to Supabase whitelist")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save to Supabase: {e}")
+            return False
+
+    def _remove_whitelist_from_supabase(self, user_id: str):
+        """Remove a user from Supabase whitelist."""
+        if not self.use_supabase:
+            return True
+        
+        try:
+            self.supabase.table("whitelist").delete().eq("user_id", user_id).execute()
+            logger.info(f"Removed user {user_id} from Supabase whitelist")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove from Supabase: {e}")
+            return False
+
+    def _clear_whitelist_in_supabase(self):
+        """Clear all users from Supabase whitelist."""
+        if not self.use_supabase:
+            return True
+        
+        try:
+            self.supabase.table("whitelist").delete().neq("id", 0).execute()
+            logger.info("Cleared all users from Supabase whitelist")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to clear Supabase whitelist: {e}")
+            return False
+
     def get_caption_history(self) -> List[int]:
         """Get list of recently used caption indices."""
         return self.state.get("caption_history", [])
@@ -220,6 +324,11 @@ class StateManager:
             whitelist.append(user_id_str)
             self.state["viewer_whitelist"] = whitelist
             self._save_state()
+            
+            # Also save to Supabase if configured
+            if self.use_supabase:
+                self._save_whitelist_to_supabase(user_id_str)
+            
             logger.info(f"Added user {user_id} to viewer whitelist")
             return True
         return False
@@ -232,6 +341,11 @@ class StateManager:
             whitelist.remove(user_id_str)
             self.state["viewer_whitelist"] = whitelist
             self._save_state()
+            
+            # Also remove from Supabase if configured
+            if self.use_supabase:
+                self._remove_whitelist_from_supabase(user_id_str)
+            
             logger.info(f"Removed user {user_id} from viewer whitelist")
             return True
         return False
@@ -240,6 +354,11 @@ class StateManager:
         """Clear all viewers from the whitelist."""
         self.state["viewer_whitelist"] = []
         self._save_state()
+        
+        # Also clear in Supabase if configured
+        if self.use_supabase:
+            self._clear_whitelist_in_supabase()
+        
         logger.info("Cleared all viewers from whitelist")
 
 
@@ -383,9 +502,15 @@ class TelegramStoryBot:
                 # Unknown command from non-owner
                 await event.reply("Unknown command. Use /help for available commands.")
         else:
-            # Do NOT automatically add senders to whitelist
-            # Do NOT send any messages to people who DM the bot
-            logger.info(f"DM from user {user_id} (@{username}) - no automatic response")
+            # Auto-add sender to whitelist when they message
+            # No messages are sent to users - only owner can message manually
+            username = sender.username or "N/A"
+            added = self.state_manager.add_viewer_to_whitelist(user_id)
+            
+            if added:
+                logger.info(f"Auto-added user {user_id} (@{username}) to whitelist from DM")
+            else:
+                logger.debug(f"User {user_id} (@{username}) already in whitelist")
 
     async def _send_help(self, event, is_owner: bool):
         """Send help message with available commands."""
@@ -408,15 +533,45 @@ class TelegramStoryBot:
         await event.reply(help_text)
 
     async def _send_viewer_list(self, event):
-        """Send list of current viewers."""
+        """Send list of current viewers with resolved usernames."""
         viewers = self.state_manager.get_viewer_whitelist()
         if not viewers:
             await event.reply("No viewers in the list yet.")
             return
         
         text = f"👀 *Current Viewers* ({len(viewers)}):\n\n"
+        
+        # Resolve each viewer to get their username/info
         for i, viewer in enumerate(viewers, 1):
-            text += f"{i}. `{viewer}`\n"
+            try:
+                # Try to resolve the user
+                if isinstance(viewer, int) or (
+                    isinstance(viewer, str) and viewer.lstrip("-").isdigit()
+                ):
+                    user_id = int(viewer)
+                    entity = await self.client.get_entity(user_id)
+                    if isinstance(entity, User):
+                        username = f"@{entity.username}" if entity.username else f"ID:{entity.id}"
+                        name = entity.first_name or "Unknown"
+                        if entity.last_name:
+                            name += f" {entity.last_name}"
+                        text += f"{i}. {name} (`{username}`)\n"
+                    else:
+                        text += f"{i}. `{viewer}`\n"
+                else:
+                    # It's a username string
+                    username = viewer.lstrip("@")
+                    entity = await self.client.get_entity(username)
+                    if isinstance(entity, User):
+                        name = entity.first_name or "Unknown"
+                        if entity.last_name:
+                            name += f" {entity.last_name}"
+                        text += f"{i}. {name} (`@{entity.username}`)\n"
+                    else:
+                        text += f"{i}. `@{viewer}`\n"
+            except Exception as e:
+                # If resolution fails, just show the raw value
+                text += f"{i}. `{viewer}` (unresolved)\n"
         
         await event.reply(text)
 
