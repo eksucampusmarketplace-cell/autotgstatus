@@ -835,7 +835,7 @@ class TelegramStoryBot:
         """Handle messages from the watched group."""
         chat = await event.get_chat()
         chat_info = f"@{chat.username}" if hasattr(chat, 'username') and chat.username else chat.title if hasattr(chat, 'title') else f"ID:{chat.id}"
-        
+
         # Only process image messages
         if not event.message.media:
             logger.debug(f"Ignoring non-media message from {chat_info}")
@@ -862,9 +862,22 @@ class TelegramStoryBot:
 
             # Check if there's a custom caption (message text) with the image
             # User can send image with caption - we'll use that instead of rotating captions
-            custom_caption = event.message.message.strip() if event.message.message else None
-            
-            if custom_caption:
+            # Also handle cases where text is in message.caption (Telegram album captions)
+            message_text = event.message.message if hasattr(event.message, 'message') else ""
+            message_caption = event.message.caption if hasattr(event.message, 'caption') else ""
+            custom_caption = None
+
+            # Try to get caption from message.text (for newer Telegram API versions)
+            if hasattr(event.message, 'text') and event.message.text:
+                custom_caption = event.message.text.strip()
+            # Fall back to message.message
+            elif message_text:
+                custom_caption = message_text.strip()
+            # Fall back to message.caption (for forwarded/photos with captions)
+            elif message_caption:
+                custom_caption = message_caption.strip()
+
+            if custom_caption and len(custom_caption) > 0:
                 # Use the custom caption from the message
                 caption = custom_caption
                 logger.info(f"Using custom caption from message: {caption}")
@@ -877,7 +890,7 @@ class TelegramStoryBot:
             story_image = self.composer.process_image_from_bytes(image_bytes, caption)
 
             # Post the story
-            await self._post_story(story_image)
+            result = await self._post_story(story_image)
 
             # Record the story post for rate limiting
             self.rate_limiter.record_story_posted()
@@ -1013,7 +1026,7 @@ class TelegramStoryBot:
 
         return input_users
 
-    async def _post_story(self, image_bytes: bytes):
+    async def _post_story(self, image_bytes: bytes, story_id_to_save=None):
         """Post the composed image as a Telegram Story with privacy settings."""
         try:
             # Get the current user (self) as peer for the story
@@ -1043,9 +1056,11 @@ class TelegramStoryBot:
             )
 
             logger.info("Story posted successfully!")
+            return result
 
         except Exception as e:
             logger.error(f"Failed to post story: {e}", exc_info=True)
+            return None
 
     async def _update_story_privacy(self, story_id: int, new_user_id: int):
         """Update an existing story's privacy to include a new user."""
@@ -1143,14 +1158,38 @@ class TelegramStoryBot:
         logger.info(f"Cooldown after daily limit: {config.COOLDOWN_HOURS} hours")
         logger.info("=" * 60)
 
-        await self.client.start()
+        # Start the client with retry logic
+        max_retries = 5
+        retry_delay = 5  # seconds
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                await self.client.start()
+                logger.info("Successfully connected to Telegram")
+                break
+            except Exception as e:
+                logger.error(f"Failed to connect (attempt {attempt}/{max_retries}): {e}")
+                if attempt < max_retries:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error("Failed to connect after maximum retries. Exiting.")
+                    raise
 
         me = await self.client.get_me()
         logger.info(f"Logged in as: {me.first_name} (@{me.username}) - ID: {me.id}")
         logger.info("Bot is running and listening for messages...")
 
-        # Keep the bot running
-        await self.client.run_until_disconnected()
+        # Keep the bot running with error handling
+        try:
+            await self.client.run_until_disconnected()
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt")
+            raise
+        except Exception as e:
+            logger.error(f"Bot disconnected unexpectedly: {e}", exc_info=True)
+            # Re-raise to let the wrapper script handle restart
+            raise
 
     async def stop(self):
         """Stop the bot."""

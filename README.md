@@ -302,6 +302,45 @@ The bot needs to have the user in its contacts/dialogs to resolve them. Have the
 - Check logs for error messages
 - Verify rate limits aren't being hit
 
+### Image text/caption not being used
+
+The bot now detects text from multiple sources:
+- `message.text` - Message body text
+- `message.message` - Legacy message field
+- `message.caption` - Image/forwarded captions
+
+If text isn't being detected:
+1. Ensure the text is attached to the image (not a separate message)
+2. Check logs for "Using custom caption from message" vs "Selected rotating caption"
+3. Set `LOG_LEVEL=DEBUG` for detailed parsing info
+
+**See [IMPROVEMENTS.md](IMPROVEMENTS.md) for details on caption detection improvements.**
+
+### New users can't see old stories
+
+By default, the bot updates the last 20 stories when a new user is added to the whitelist.
+
+If users still can't see old stories:
+1. Check logs for "Updated X/Y stories for new user"
+2. Some stories older than 24 hours cannot have privacy changed
+3. Increase `MAX_STORIES_TO_UPDATE` in config.py (default: 20)
+
+**See [IMPROVEMENTS.md](IMPROVEMENTS.md) for details on story privacy updates.**
+
+### Bot keeps crashing and restarting
+
+The bot now includes auto-restart functionality via `start_bot.sh`.
+
+If the bot restarts repeatedly:
+1. Check logs for the root cause (network errors, API issues, etc.)
+2. Verify API credentials are correct
+3. Check for Telegram rate limit warnings
+4. Review [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) for safe rate limit settings
+
+The bot will automatically restart after crashes, but if crashes persist, investigate the error logs.
+
+**See [IMPROVEMENTS.md](IMPROVEMENTS.md) for details on auto-restart functionality.**
+
 ### Font issues
 
 The bot tries multiple font paths. If none work, it falls back to a default font. To use a specific font, install it:
@@ -317,12 +356,14 @@ sudo apt-get install fonts-dejavu
 - **Render builds failing**: Check environment variables are set correctly
 - **Session lost on redeploy**: Use STRING_SESSION instead of session file
 - **Rate limits not persisting**: Ensure persistent disk is configured on Render
+- **Bot not restarting**: Verify `start_bot.sh` is being used in Procfile/render.yaml
 
 ## Documentation
 
 - 📖 [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) - Complete deployment instructions
 - 🛡️ [ACCOUNT_SAFETY.md](ACCOUNT_SAFETY.md) - Comprehensive safety guidelines
 - ⚙️ [.env.example](.env.example) - Environment variable template
+- 🚀 [IMPROVEMENTS.md](IMPROVEMENTS.md) - Recent improvements and bug fixes
 
 ## License
 
