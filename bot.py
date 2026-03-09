@@ -16,7 +16,7 @@ from aiohttp import web
 
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.stories import SendStoryRequest, GetStoriesRequest
+from telethon.tl.functions.stories import SendStoryRequest
 from telethon.tl.functions.users import GetFullUserRequest
 from telethon.tl.types import (
     InputPrivacyValueAllowUsers,
