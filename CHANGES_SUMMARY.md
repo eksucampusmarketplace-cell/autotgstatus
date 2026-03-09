@@ -71,11 +71,24 @@ async def _send_viewer_list(self, event):
 - `/viewers` command shows full names and usernames for easy identification
 - All whitelist activity is logged
 
-### Note on Story Visibility
-Stories are posted with privacy rules at the time of posting. This means:
-- **Newly added viewers can only see stories posted AFTER they were added**
-- They cannot see old stories that were posted before they joined the whitelist
-- This is a Telegram privacy limitation, not a bot limitation
+### Result
+- Users who DM the bot are automatically added to the whitelist
+- New members receive a welcome message
+- `/viewers` command shows full names and usernames for easy identification
+- All whitelist activity is logged
+
+### Note on Story Visibility - UPDATE
+When new users are added to the whitelist (either via DM or /add command), the bot automatically updates existing stories to include them. The `update_all_stories_for_new_user()` function runs and attempts to edit privacy rules on recent stories to grant access to the new user. This means:
+
+- **New viewers CAN see old stories** that were posted before they were added
+- Stories are updated in batches (default: up to 20 stories) to avoid rate limits
+- This feature works automatically - no manual action needed
+
+### Important: No Automatic Messages
+The bot **never sends automatic messages** to users. When someone DMs the bot:
+- They are silently added to the whitelist (no notification to them)
+- Existing stories are updated to include them
+- **Only the owner** can manually send messages to users via Telegram
 
 ---
 
@@ -132,3 +145,43 @@ create table whitelist (
 - Whitelist is persisted in Supabase (cloud database)
 - Whitelist survives restarts, redeployments, and server failures
 - Graceful fallback to local storage if Supabase is unavailable
+
+---
+
+## 4. Custom Caption from Watch Group/Channel
+
+### Problem
+Users wanted to set a custom caption for a particular image they send to the watch group, without needing to use commands like `/story` or `/image`.
+
+### Solution
+Modified `bot.py` to detect if an image sent to the watch group or channel has a caption (message text) attached to it. If a caption is present, it uses that custom caption instead of the rotating caption system.
+
+### Key Changes in `bot.py`:
+
+#### Group message handler (lines 863-874):
+```python
+# Check if there's a custom caption (message text) with the image
+# User can send image with caption - we'll use that instead of rotating captions
+custom_caption = event.message.message.strip() if event.message.message else None
+
+if custom_caption:
+    # Use the custom caption from the message
+    caption = custom_caption
+    logger.info(f"Using custom caption from message: {caption}")
+else:
+    # No custom caption provided, use rotating caption
+    caption = self.caption_rotator.get_next_caption()
+    logger.info(f"Selected rotating caption: {caption}")
+```
+
+Same logic applied to channel message handler.
+
+### How to Use
+1. **Send an image with a caption** in the watch group or channel
+2. The bot will use your custom caption text instead of the rotating captions
+3. **Send just an image** (no caption) to use the rotating caption system as before
+
+### Result
+- Custom captions work without any commands
+- Simply send an image with a caption text in the watched group
+- Maintains backward compatibility - images without captions still use rotating captions
