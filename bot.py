@@ -84,6 +84,11 @@ def setup_logging():
 
 logger = setup_logging()
 
+# Suppress Telethon entity resolution warnings for uncached users
+# These are expected when resolving user IDs that haven't been encountered before
+telethon_logger = logging.getLogger("telethon")
+telethon_logger.setLevel(logging.WARNING)
+
 
 # =============================================================================
 # RATE LIMITER
